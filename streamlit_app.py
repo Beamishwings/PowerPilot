@@ -726,7 +726,7 @@ with col4:
 # ─────────────────────────────────────────
 # TABS
 # ─────────────────────────────────────────
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["⚡ Rates & Hours", "📊 Devices", "🤖 AI Advisor", "💬 Chat", "📈 Projection"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["⚡ Rates & Hours", "📊 Devices", "📈 Projection", "🤖 AI Advisor", "💬 Chat"])
 
 # ── TAB 1: RATES & HOURS (interactive hover chart) ──
 with tab1:
@@ -1092,8 +1092,8 @@ with tab2:
             else:
                 st.warning("Please enter a device name.")
 
-# ── TAB 3: AI ADVISOR ──
-with tab3:
+# ── TAB 4: AI ADVISOR ──
+with tab4:
     st.markdown('<div class="section-header">AI Recommendations <div class="section-line"></div></div>', unsafe_allow_html=True)
 
     if st.button("⚡ Optimize My Usage"):
@@ -1133,8 +1133,8 @@ with tab3:
         else:
             st.error("AI response error. Check your Groq API key in secrets.")
 
-# ── TAB 4: CHAT ──
-with tab4:
+# ── TAB 5: CHAT ──
+with tab5:
     st.markdown('<div class="section-header">Chat with PowerPilot <div class="section-line"></div></div>', unsafe_allow_html=True)
 
     for msg in st.session_state.chat_history:
@@ -1151,8 +1151,8 @@ with tab4:
         st.session_state.chat_history.append({"role": "assistant", "content": answer})
         st.rerun()
 
-# ── TAB 5: PROJECTION ──
-with tab5:
+# ── TAB 3: PROJECTION ──
+with tab3:
     st.markdown('<div class="section-header">Annual Cost Projection <div class="section-line"></div></div>', unsafe_allow_html=True)
 
     avg_rate_proj = sum(r["cost_per_kwh"] for r in rates) / len(rates) if rates else 0.12
