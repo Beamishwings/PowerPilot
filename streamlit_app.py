@@ -475,6 +475,45 @@ Answer in 2-4 sentences. Be specific to their actual devices and data. Be friend
 
     return call_groq(prompt, max_tokens=512)
 
+
+def fetch_device_defaults(device_name: str) -> dict:
+    """
+    Ask Groq to return DOE-average wattage and usage hours for a named device.
+    Returns a dict with keys: power_on_watts, hours_on_per_day, hours_idle_per_day.
+    Falls back to safe defaults on any failure.
+    """
+    prompt = f"""You are an energy data expert. A user wants to add "{device_name}" to their home energy tracker.
+
+Using US Department of Energy averages and real-world data for typical American households, provide:
+- power_on_watts: the device's typical active wattage (integer)
+- hours_on_per_day: average hours the device runs actively per day (float, 0-24)
+- hours_idle_per_day: average hours the device sits in standby/idle per day (float, 0-24)
+
+Rules:
+- hours_on_per_day + hours_idle_per_day must be <= 24
+- Be specific to the device. A refrigerator runs 24h but compressor cycles ~8h active.
+- For HVAC, assume a typical US home during peak season.
+- Return ONLY a JSON object, no explanation, no markdown:
+
+{{"power_on_watts": <int>, "hours_on_per_day": <float>, "hours_idle_per_day": <float>, "notes": "<one short sentence explaining the estimate>"}}"""
+
+    try:
+        raw = call_groq(prompt, max_tokens=200)
+        if "```json" in raw:
+            raw = raw.split("```json")[1].split("```")[0].strip()
+        elif "```" in raw:
+            raw = raw.split("```")[1].split("```")[0].strip()
+        result = json.loads(raw)
+        # Clamp values to valid ranges
+        on_w = max(1, min(10000, int(result.get("power_on_watts", 100))))
+        h_on = max(0.0, min(24.0, float(result.get("hours_on_per_day", 4))))
+        h_idle = max(0.0, min(24.0 - h_on, float(result.get("hours_idle_per_day", 2))))
+        notes = result.get("notes", "")
+        return {"power_on_watts": on_w, "hours_on_per_day": h_on, "hours_idle_per_day": h_idle, "notes": notes}
+    except Exception:
+        return {"power_on_watts": 100, "hours_on_per_day": 4.0, "hours_idle_per_day": 2.0, "notes": ""}
+
+
 # ─────────────────────────────────────────
 # SESSION STATE
 # ─────────────────────────────────────────
@@ -888,34 +927,103 @@ with tab2:
 
     # ── Add Device expander ──
     st.markdown("<div style='margin-top:1.5rem;'></div>", unsafe_allow_html=True)
+
+    # Initialize AI-defaults session state keys so widgets can be pre-seeded
+    if "add_watts" not in st.session_state:
+        st.session_state["add_watts"] = 100
+    if "add_hours_on" not in st.session_state:
+        st.session_state["add_hours_on"] = 4
+    if "add_hours_idle" not in st.session_state:
+        st.session_state["add_hours_idle"] = 2
+    if "add_device_notes" not in st.session_state:
+        st.session_state["add_device_notes"] = ""
+    if "add_ai_loaded" not in st.session_state:
+        st.session_state["add_ai_loaded"] = False
+
     with st.expander("＋ Add a Device", expanded=False):
         st.markdown('<div style="font-size:0.7rem;color:#4A6080;text-transform:uppercase;letter-spacing:0.1em;font-family:Space Mono,monospace;margin-bottom:1rem;">New Device Parameters</div>', unsafe_allow_html=True)
 
-        add_col1, add_col2 = st.columns(2)
-        with add_col1:
-            new_name = st.text_input("Device Name", placeholder="e.g. Washing Machine", key="add_name")
-        with add_col2:
-            new_watts = st.number_input("Wattage (W)", min_value=1, max_value=10000, value=100, step=10, key="add_watts")
+        # ── Device name row + AI lookup button ──
+        name_col, btn_col = st.columns([3, 1])
+        with name_col:
+            new_name = st.text_input(
+                "Device Name",
+                placeholder="e.g. Washing Machine, Central AC, Mini Fridge…",
+                key="add_name",
+            )
+        with btn_col:
+            st.markdown("<div style='margin-top:1.75rem;'></div>", unsafe_allow_html=True)
+            lookup_clicked = st.button("⚡ AI Lookup", key="ai_lookup", help="Auto-fill wattage & hours using DOE averages")
+
+        if lookup_clicked:
+            name_val = st.session_state.get("add_name", "").strip()
+            if not name_val:
+                st.warning("Enter a device name first, then click AI Lookup.")
+            else:
+                with st.spinner(f"Looking up DOE averages for **{name_val}**…"):
+                    defaults = fetch_device_defaults(name_val)
+                st.session_state["add_watts"] = defaults["power_on_watts"]
+                st.session_state["add_hours_on"] = int(round(defaults["hours_on_per_day"]))
+                # Clamp idle so on+idle ≤ 24
+                max_idle = 24 - st.session_state["add_hours_on"]
+                st.session_state["add_hours_idle"] = min(int(round(defaults["hours_idle_per_day"])), max_idle)
+                st.session_state["add_device_notes"] = defaults.get("notes", "")
+                st.session_state["add_ai_loaded"] = True
+                st.rerun()
+
+        # Show AI note banner if defaults were just loaded
+        if st.session_state.get("add_ai_loaded") and st.session_state.get("add_device_notes"):
+            st.markdown(f"""
+            <div style="background:#0A1E10;border:1px solid #00FF9433;border-left:3px solid #00FF94;
+                        border-radius:8px;padding:0.6rem 1rem;margin-bottom:0.8rem;
+                        font-size:0.8rem;color:#80FFCC;font-family:Space Mono,monospace;">
+                ⚡ AI estimate: {st.session_state['add_device_notes']}
+            </div>
+            """, unsafe_allow_html=True)
+
+        # ── Wattage input (seeded from session state) ──
+        new_watts = st.number_input(
+            "Wattage (W)",
+            min_value=1,
+            max_value=10000,
+            value=st.session_state["add_watts"],
+            step=10,
+            key="add_watts",
+        )
 
         st.markdown('<div style="font-size:0.75rem;color:#4A6080;font-family:Space Mono,monospace;margin:1rem 0 0.3rem 0;">HOURS PER DAY</div>', unsafe_allow_html=True)
         st.markdown('<div style="font-size:0.72rem;color:#4A6080;margin-bottom:0.5rem;">Split the 24-hour day between active and idle time. Remaining hours are off.</div>', unsafe_allow_html=True)
 
-        hours_on = st.slider("Hours ON per day", min_value=0, max_value=24, value=4, step=1, key="add_hours_on")
+        hours_on = st.slider(
+            "Hours ON per day",
+            min_value=0,
+            max_value=24,
+            value=st.session_state["add_hours_on"],
+            step=1,
+            key="add_hours_on",
+        )
         remaining = 24 - hours_on
-        hours_idle = st.slider("Hours IDLE per day", min_value=0, max_value=remaining, value=min(2, remaining), step=1, key="add_hours_idle")
+        hours_idle = st.slider(
+            "Hours IDLE per day",
+            min_value=0,
+            max_value=remaining,
+            value=min(st.session_state["add_hours_idle"], remaining),
+            step=1,
+            key="add_hours_idle",
+        )
         hours_off = 24 - hours_on - hours_idle
 
-        # Live preview
+        # Live preview bar
         st.markdown(f"""
         <div style="display:flex;gap:6px;margin:0.8rem 0;height:18px;border-radius:6px;overflow:hidden;">
-            <div style="flex:{hours_on};background:#00D4FF;border-radius:4px;" title="ON"></div>
-            <div style="flex:{hours_idle};background:#FF6B35;border-radius:4px;" title="IDLE"></div>
-            <div style="flex:{hours_off};background:#1E2A3A;border-radius:4px;" title="OFF"></div>
+            <div style="flex:{max(hours_on,0.01)};background:#00D4FF;border-radius:4px;" title="ON"></div>
+            <div style="flex:{max(hours_idle,0.01)};background:#FF6B35;border-radius:4px;" title="IDLE"></div>
+            <div style="flex:{max(hours_off,0.01)};background:#1E2A3A;border-radius:4px;" title="OFF"></div>
         </div>
         <div style="display:flex;gap:1.5rem;font-size:0.7rem;font-family:Space Mono,monospace;color:#4A6080;margin-bottom:1rem;">
             <span><span style="color:#00D4FF;">■</span> ON: {hours_on}h</span>
             <span><span style="color:#FF6B35;">■</span> IDLE: {hours_idle}h</span>
-            <span><span style="color:#1E2A3A;background:#4A6080;padding:0 4px;border-radius:2px;">■</span> OFF: {hours_off}h</span>
+            <span><span style="color:#4A6080;">■</span> OFF: {hours_off}h</span>
         </div>
         """, unsafe_allow_html=True)
 
@@ -930,6 +1038,12 @@ with tab2:
                 })
                 save_devices_to_snowflake(USER_ID, st.session_state.devices)
                 st.session_state.ai_result = None
+                # Reset add-device state for next use
+                st.session_state["add_watts"] = 100
+                st.session_state["add_hours_on"] = 4
+                st.session_state["add_hours_idle"] = 2
+                st.session_state["add_device_notes"] = ""
+                st.session_state["add_ai_loaded"] = False
                 st.rerun()
             else:
                 st.warning("Please enter a device name.")
