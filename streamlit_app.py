@@ -482,11 +482,13 @@ if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 if "ai_result" not in st.session_state:
     st.session_state.ai_result = None
+if "devices" not in st.session_state:
+    st.session_state.devices = get_devices(USER_ID)
 
 # ─────────────────────────────────────────
 # LOAD DATA (fixed single user, fixed rates)
 # ─────────────────────────────────────────
-devices = get_devices(USER_ID)
+devices = st.session_state.devices
 rates = get_fixed_rates()
 
 data = {
@@ -757,25 +759,78 @@ with tab2:
 
     breakdown = computed["breakdown"]
 
+    # ── Device table with remove buttons ──
     st.markdown("""
     <div style="background:#0D1520;border:1px solid #1E2A3A;border-radius:16px;overflow:hidden;">
-        <div class="device-row device-row-header">
-            <div>Device</div><div>kWh/day</div><div>Cost/month</div><div>Share</div>
+        <div class="device-row device-row-header" style="grid-template-columns:2fr 1fr 1fr 1fr 0.4fr;">
+            <div>Device</div><div>kWh/day</div><div>Cost/month</div><div>Share</div><div></div>
         </div>
+    </div>
     """, unsafe_allow_html=True)
 
-    for item in breakdown:
+    for idx, item in enumerate(breakdown):
         share = round(item["kwh_per_day"] / total_kwh * 100) if total_kwh else 0
+        col_name, col_kwh, col_cost, col_share, col_del = st.columns([2, 1, 1, 1, 0.4])
+        with col_name:
+            st.markdown(f'<div style="padding:0.7rem 0.5rem;font-weight:600;color:#E8EDF5;border-bottom:1px solid #1E2A3A;">{item["device_name"]}</div>', unsafe_allow_html=True)
+        with col_kwh:
+            st.markdown(f'<div style="padding:0.7rem 0.5rem;font-family:Space Mono,monospace;font-size:0.85rem;color:#A0B4CC;border-bottom:1px solid #1E2A3A;">{item["kwh_per_day"]}</div>', unsafe_allow_html=True)
+        with col_cost:
+            st.markdown(f'<div style="padding:0.7rem 0.5rem;font-family:Space Mono,monospace;font-size:0.85rem;color:#00FF94;border-bottom:1px solid #1E2A3A;">${item["cost_per_month"]}</div>', unsafe_allow_html=True)
+        with col_share:
+            st.markdown(f'<div style="padding:0.7rem 0.5rem;font-family:Space Mono,monospace;font-size:0.85rem;color:#A0B4CC;border-bottom:1px solid #1E2A3A;">{share}%</div>', unsafe_allow_html=True)
+        with col_del:
+            if st.button("🗑", key=f"del_{idx}", help=f"Remove {item['device_name']}"):
+                st.session_state.devices.pop(idx)
+                st.session_state.ai_result = None
+                st.rerun()
+
+    # ── Add Device expander ──
+    st.markdown("<div style='margin-top:1.5rem;'></div>", unsafe_allow_html=True)
+    with st.expander("＋ Add a Device", expanded=False):
+        st.markdown('<div style="font-size:0.7rem;color:#4A6080;text-transform:uppercase;letter-spacing:0.1em;font-family:Space Mono,monospace;margin-bottom:1rem;">New Device Parameters</div>', unsafe_allow_html=True)
+
+        add_col1, add_col2 = st.columns(2)
+        with add_col1:
+            new_name = st.text_input("Device Name", placeholder="e.g. Washing Machine", key="add_name")
+        with add_col2:
+            new_watts = st.number_input("Wattage (W)", min_value=1, max_value=10000, value=100, step=10, key="add_watts")
+
+        st.markdown('<div style="font-size:0.75rem;color:#4A6080;font-family:Space Mono,monospace;margin:1rem 0 0.3rem 0;">HOURS PER DAY</div>', unsafe_allow_html=True)
+        st.markdown('<div style="font-size:0.72rem;color:#4A6080;margin-bottom:0.5rem;">Split the 24-hour day between active and idle time. Remaining hours are off.</div>', unsafe_allow_html=True)
+
+        hours_on = st.slider("Hours ON per day", min_value=0, max_value=24, value=4, step=1, key="add_hours_on")
+        remaining = 24 - hours_on
+        hours_idle = st.slider("Hours IDLE per day", min_value=0, max_value=remaining, value=min(2, remaining), step=1, key="add_hours_idle")
+        hours_off = 24 - hours_on - hours_idle
+
+        # Live preview
         st.markdown(f"""
-        <div class="device-row">
-            <div class="device-name">{item['device_name']}</div>
-            <div class="device-val">{item['kwh_per_day']}</div>
-            <div class="device-cost">${item['cost_per_month']}</div>
-            <div class="device-val">{share}%</div>
+        <div style="display:flex;gap:6px;margin:0.8rem 0;height:18px;border-radius:6px;overflow:hidden;">
+            <div style="flex:{hours_on};background:#00D4FF;border-radius:4px;" title="ON"></div>
+            <div style="flex:{hours_idle};background:#FF6B35;border-radius:4px;" title="IDLE"></div>
+            <div style="flex:{hours_off};background:#1E2A3A;border-radius:4px;" title="OFF"></div>
+        </div>
+        <div style="display:flex;gap:1.5rem;font-size:0.7rem;font-family:Space Mono,monospace;color:#4A6080;margin-bottom:1rem;">
+            <span><span style="color:#00D4FF;">■</span> ON: {hours_on}h</span>
+            <span><span style="color:#FF6B35;">■</span> IDLE: {hours_idle}h</span>
+            <span><span style="color:#1E2A3A;background:#4A6080;padding:0 4px;border-radius:2px;">■</span> OFF: {hours_off}h</span>
         </div>
         """, unsafe_allow_html=True)
 
-    st.markdown("</div>", unsafe_allow_html=True)
+        if st.button("Add Device", key="add_submit"):
+            if new_name.strip():
+                st.session_state.devices.append({
+                    "device_name": new_name.strip(),
+                    "power_on_watts": float(new_watts),
+                    "power_idle_watts": float(new_watts) * 0.05,
+                    "hours_on_per_day": float(hours_on),
+                    "hours_idle_per_day": float(hours_idle),
+                })
+                st.session_state.ai_result = None
+                st.rerun()
+            else:
+                st.warning("Please enter a device name.")
 
 # ── TAB 3: AI ADVISOR ──
 with tab3:
