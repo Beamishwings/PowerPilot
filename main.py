@@ -1,21 +1,20 @@
 """
 Main entrypoint for PowerPilot — run with: python main.py
-Pulls real device + rate data from Snowflake instead of hardcoded sample input.
+Pulls real device data from Snowflake and uses fixed demonstration energy rates.
 """
 import json
-from db import get_devices_for_user, get_zip_for_user, get_rates_for_zip, save_energy_profile
+from db import get_devices_for_user, get_fixed_rates, save_energy_profile
 from optimizer import compute_energy_results
 from ai_engine import generate_energy_recommendation, ask_energy_question
 
-USER_ID = "User 1"
+USER_ID = "u1"
 
 if __name__ == "__main__":
     print(f"Fetching data for user {USER_ID} from Snowflake...")
-    zip_code = get_zip_for_user(USER_ID)
     devices = get_devices_for_user(USER_ID)
-    rates = get_rates_for_zip(zip_code)
+    rates = get_fixed_rates()
 
-    print(f"Zip: {zip_code} | Devices: {len(devices)} | Rate hours: {len(rates)}")
+    print(f"Devices: {len(devices)} | Rate hours: {len(rates)}")
 
     data = {
         "user_id": USER_ID,
