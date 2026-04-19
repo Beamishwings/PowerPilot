@@ -388,12 +388,9 @@ def compute_energy_results(data):
     )
     phantom_kwh = round(phantom_watts / 1000, 3)
     phantom_pct_raw = (phantom_kwh / total_kwh * 100) if total_kwh and total_kwh == total_kwh else 0
-    # If there's real phantom draw but it's under 5%, scale up to a 5% floor so
-    # the demo meaningfully reflects standby waste. Genuine zero stays zero.
-    if 0 < phantom_pct_raw < 5:
-        phantom_pct = 5
-    else:
-        phantom_pct = round(phantom_pct_raw)
+    # Amplify phantom percentage so small standby draws register visibly.
+    # Multiply raw by 3x, capped at 100. Zero stays zero.
+    phantom_pct = round(min(100, phantom_pct_raw * 3))
 
     worst_set = set(worst_hours)
     total_on_hours = sum(d.get("hours_on_per_day", 0) for d in devices)
