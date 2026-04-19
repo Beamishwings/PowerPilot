@@ -927,8 +927,8 @@ with tab2:
     # ── Device table with remove buttons ──
     st.markdown("""
     <div style="background:#0D1520;border:1px solid #1E2A3A;border-radius:16px;overflow:hidden;">
-        <div class="device-row device-row-header" style="grid-template-columns:2fr 1fr 1fr 1fr 1fr 0.4fr;">
-            <div>Device</div><div>kWh/day</div><div>Cost/month</div><div>Phantom Load</div><div>Share</div><div></div>
+        <div class="device-row device-row-header" style="grid-template-columns:2fr 1fr 1fr 1fr 0.4fr;">
+            <div>Device</div><div>kWh/day</div><div>Cost/month</div><div>Share</div><div></div>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -943,22 +943,13 @@ with tab2:
         else:
             season_badge = ""
         cost_note = '<span style="font-size:0.65rem;color:#4A6080;"> avg</span>' if kind in ("cooling","heating") else ""
-        phantom_w = item.get("phantom_watts", 0)
-        phantom_c = item.get("phantom_cost_month", 0)
-        if phantom_w > 0:
-            phantom_color = "#FF6B35" if phantom_w > 20 else "#A0B4CC"
-            phantom_cell = f'<span style="color:{phantom_color};">{phantom_w}W</span> <span style="color:#4A6080;font-size:0.75rem;">${phantom_c}/mo</span>'
-        else:
-            phantom_cell = '<span style="color:#2A3A4A;">—</span>'
-        col_name, col_kwh, col_cost, col_phantom, col_share, col_del = st.columns([2, 1, 1, 1, 1, 0.4])
+        col_name, col_kwh, col_cost, col_share, col_del = st.columns([2, 1, 1, 1, 0.4])
         with col_name:
             st.markdown(f'<div style="padding:0.7rem 0.5rem;font-weight:600;color:#E8EDF5;border-bottom:1px solid #1E2A3A;">{item["device_name"]}{season_badge}</div>', unsafe_allow_html=True)
         with col_kwh:
             st.markdown(f'<div style="padding:0.7rem 0.5rem;font-family:Space Mono,monospace;font-size:0.85rem;color:#A0B4CC;border-bottom:1px solid #1E2A3A;">{item["kwh_per_day"]}</div>', unsafe_allow_html=True)
         with col_cost:
             st.markdown(f'<div style="padding:0.7rem 0.5rem;font-family:Space Mono,monospace;font-size:0.85rem;color:#00FF94;border-bottom:1px solid #1E2A3A;">${item["cost_per_month"]}{cost_note}</div>', unsafe_allow_html=True)
-        with col_phantom:
-            st.markdown(f'<div style="padding:0.7rem 0.5rem;font-family:Space Mono,monospace;font-size:0.85rem;border-bottom:1px solid #1E2A3A;">{phantom_cell}</div>', unsafe_allow_html=True)
         with col_share:
             st.markdown(f'<div style="padding:0.7rem 0.5rem;font-family:Space Mono,monospace;font-size:0.85rem;color:#A0B4CC;border-bottom:1px solid #1E2A3A;">{share}%</div>', unsafe_allow_html=True)
         with col_del:
