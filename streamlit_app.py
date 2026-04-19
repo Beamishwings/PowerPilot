@@ -336,18 +336,31 @@ def compute_energy_results(data):
     breakdown = []
     total_kwh = 0.0
 
+    COOLING_MONTHS_SET = {6, 7, 8, 9}
+    HEATING_MONTHS_SET = {11, 12, 1, 2, 3}
+
     for device in devices:
         on_watts = device.get("power_on_watts", 0)
         idle_watts = device.get("power_idle_watts", on_watts * 0.05)
         hours_on = device.get("hours_on_per_day", 0)
         hours_idle = device.get("hours_idle_per_day", 0)
         kwh_per_day = (on_watts * hours_on + idle_watts * hours_idle) / 1000
-        cost_per_month = kwh_per_day * 30 * avg_rate
+        kind = _classify(device["device_name"])
+        # For HVAC devices, cost_per_month reflects only the months they actually run
+        if kind == "cooling":
+            active_months = len(COOLING_MONTHS_SET)
+            seasonal_cost = round(kwh_per_day * 30 * avg_rate * active_months / 12, 2)
+        elif kind == "heating":
+            active_months = len(HEATING_MONTHS_SET)
+            seasonal_cost = round(kwh_per_day * 30 * avg_rate * active_months / 12, 2)
+        else:
+            seasonal_cost = round(kwh_per_day * 30 * avg_rate, 2)
         total_kwh += kwh_per_day
         breakdown.append({
             "device_name": device["device_name"],
+            "device_type": kind,
             "kwh_per_day": round(kwh_per_day, 3),
-            "cost_per_month": round(cost_per_month, 2),
+            "cost_per_month": seasonal_cost,
         })
 
     total_cost_per_month = round(total_kwh * 30 * avg_rate, 2)
@@ -372,7 +385,9 @@ def compute_energy_results(data):
     peak_usage_penalty = round(min(30, peak_ratio * total_on_hours * 5))
     inefficiency_penalty = round(min(30, phantom_pct * 0.6))
     off_peak_bonus = round(min(20, savings_pct * 0.2))
-    power_score = max(0, min(100, 100 - peak_usage_penalty - inefficiency_penalty + off_peak_bonus))
+    # Consumption penalty: heavy usage = lower score. ~30 kWh/day = max penalty of 35pts
+    consumption_penalty = round(min(35, (total_kwh / 30) * 35))
+    power_score = max(0, min(100, 100 - peak_usage_penalty - inefficiency_penalty - consumption_penalty + off_peak_bonus))
 
     return {
         "summary": {
@@ -915,13 +930,21 @@ with tab2:
 
     for idx, item in enumerate(breakdown):
         share = round(item["kwh_per_day"] / total_kwh * 100) if total_kwh else 0
+        kind = item.get("device_type", "standard")
+        if kind == "cooling":
+            season_badge = ' <span style="font-size:0.62rem;color:#00D4FF;background:#0A1E2E;border:1px solid #00D4FF44;border-radius:4px;padding:1px 5px;margin-left:4px;">❄ Summer only</span>'
+        elif kind == "heating":
+            season_badge = ' <span style="font-size:0.62rem;color:#FF6B35;background:#1E0A00;border:1px solid #FF6B3544;border-radius:4px;padding:1px 5px;margin-left:4px;">🔥 Winter only</span>'
+        else:
+            season_badge = ""
+        cost_note = '<span style="font-size:0.65rem;color:#4A6080;"> avg</span>' if kind in ("cooling","heating") else ""
         col_name, col_kwh, col_cost, col_share, col_del = st.columns([2, 1, 1, 1, 0.4])
         with col_name:
-            st.markdown(f'<div style="padding:0.7rem 0.5rem;font-weight:600;color:#E8EDF5;border-bottom:1px solid #1E2A3A;">{item["device_name"]}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div style="padding:0.7rem 0.5rem;font-weight:600;color:#E8EDF5;border-bottom:1px solid #1E2A3A;">{item["device_name"]}{season_badge}</div>', unsafe_allow_html=True)
         with col_kwh:
             st.markdown(f'<div style="padding:0.7rem 0.5rem;font-family:Space Mono,monospace;font-size:0.85rem;color:#A0B4CC;border-bottom:1px solid #1E2A3A;">{item["kwh_per_day"]}</div>', unsafe_allow_html=True)
         with col_cost:
-            st.markdown(f'<div style="padding:0.7rem 0.5rem;font-family:Space Mono,monospace;font-size:0.85rem;color:#00FF94;border-bottom:1px solid #1E2A3A;">${item["cost_per_month"]}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div style="padding:0.7rem 0.5rem;font-family:Space Mono,monospace;font-size:0.85rem;color:#00FF94;border-bottom:1px solid #1E2A3A;">${item["cost_per_month"]}{cost_note}</div>', unsafe_allow_html=True)
         with col_share:
             st.markdown(f'<div style="padding:0.7rem 0.5rem;font-family:Space Mono,monospace;font-size:0.85rem;color:#A0B4CC;border-bottom:1px solid #1E2A3A;">{share}%</div>', unsafe_allow_html=True)
         with col_del:
