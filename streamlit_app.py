@@ -386,12 +386,22 @@ def compute_energy_results(data):
 
     worst_set = set(worst_hours)
     total_on_hours = sum(d.get("hours_on_per_day", 0) for d in devices)
-    peak_ratio = len(worst_set) / 24
-    peak_usage_penalty = round(min(30, peak_ratio * total_on_hours * 5))
-    inefficiency_penalty = round(min(30, phantom_pct * 0.6))
-    off_peak_bonus = round(min(20, savings_pct * 0.2))
-    # Consumption penalty: heavy usage = lower score. ~50 kWh/day = max penalty of 35pts
-    consumption_penalty = round(min(35, (total_kwh / 50) * 35))
+
+    # Peak usage penalty: each device-hour during peak costs 0.5 pts, capped at 20.
+    peak_device_hours = sum(d.get("hours_on_per_day", 0) for d in devices)
+    peak_usage_penalty = round(min(20, peak_device_hours * 0.5))
+
+    # Phantom/idle inefficiency penalty: capped at 15 pts
+    inefficiency_penalty = round(min(15, phantom_pct * 0.4))
+
+    # Off-peak bonus: up to 15 pts
+    off_peak_bonus = round(min(15, savings_pct * 0.25))
+
+    # Consumption penalty: daily essentials (~10 kWh) incur no penalty.
+    # Only excess above 10 kWh/day is penalised; max 20 pts at 60+ kWh/day.
+    excess_kwh = max(0.0, total_kwh - 10.0)
+    consumption_penalty = round(min(20, (excess_kwh / 50.0) * 20))
+
     power_score = max(0, min(100, 100 - peak_usage_penalty - inefficiency_penalty - consumption_penalty + off_peak_bonus))
 
     return {
@@ -649,6 +659,10 @@ if "ai_result" not in st.session_state:
     st.session_state.ai_result = None
 if "devices" not in st.session_state:
     st.session_state.devices = load_devices_from_snowflake(USER_ID)
+if "device_sort_by" not in st.session_state:
+    st.session_state.device_sort_by = None
+if "device_sort_dir" not in st.session_state:
+    st.session_state.device_sort_dir = "desc"
 
 # ─────────────────────────────────────────
 # LOAD DATA (fixed single user, fixed rates)
@@ -924,17 +938,60 @@ with tab2:
 
     breakdown = computed["breakdown"]
 
-    # ── Device table with remove buttons ──
-    st.markdown("""
-    <div style="background:#0D1520;border:1px solid #1E2A3A;border-radius:16px;overflow:hidden;">
-        <div class="device-row device-row-header" style="grid-template-columns:2fr 1fr 1fr 1fr 0.4fr;">
-            <div>Device</div><div>kWh/day</div><div>Cost/month</div><div>Share</div><div></div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    # ── Sort controls ──
+    def _set_sort(col):
+        if st.session_state.device_sort_by == col:
+            st.session_state.device_sort_dir = "asc" if st.session_state.device_sort_dir == "desc" else "desc"
+        else:
+            st.session_state.device_sort_by = col
+            st.session_state.device_sort_dir = "desc"
 
-    for idx, item in enumerate(breakdown):
+    # Pre-compute shares so we can sort by them
+    breakdown_with_share = []
+    for item in breakdown:
         share = round(item["kwh_per_day"] / total_kwh * 100) if total_kwh else 0
+        breakdown_with_share.append({**item, "share": share})
+
+    sort_by = st.session_state.device_sort_by
+    sort_dir = st.session_state.device_sort_dir
+    if sort_by == "kwh":
+        breakdown_with_share = sorted(breakdown_with_share, key=lambda x: x["kwh_per_day"], reverse=(sort_dir == "desc"))
+    elif sort_by == "cost":
+        breakdown_with_share = sorted(breakdown_with_share, key=lambda x: x["cost_per_month"], reverse=(sort_dir == "desc"))
+    elif sort_by == "share":
+        breakdown_with_share = sorted(breakdown_with_share, key=lambda x: x["share"], reverse=(sort_dir == "desc"))
+
+    def _sort_arrow(col):
+        if st.session_state.device_sort_by != col:
+            return " ↕"
+        return " ↓" if st.session_state.device_sort_dir == "desc" else " ↑"
+
+    # ── Device table header with clickable sort buttons ──
+    hdr_name, hdr_kwh, hdr_cost, hdr_share, hdr_del = st.columns([2, 1, 1, 1, 0.4])
+    with hdr_name:
+        st.markdown('<div style="padding:0.5rem 0.5rem;font-size:0.7rem;color:#4A6080;text-transform:uppercase;letter-spacing:0.1em;font-family:Space Mono,monospace;border-bottom:1px solid #1E2A3A;">Device</div>', unsafe_allow_html=True)
+    with hdr_kwh:
+        if st.button(f"kWh/day{_sort_arrow('kwh')}", key="sort_kwh", help="Sort by kWh/day"):
+            _set_sort("kwh"); st.rerun()
+    with hdr_cost:
+        if st.button(f"Cost/mo{_sort_arrow('cost')}", key="sort_cost", help="Sort by Cost/month"):
+            _set_sort("cost"); st.rerun()
+    with hdr_share:
+        if st.button(f"Share{_sort_arrow('share')}", key="sort_share", help="Sort by Share"):
+            _set_sort("share"); st.rerun()
+    with hdr_del:
+        st.markdown("", unsafe_allow_html=True)
+
+    st.markdown('<div style="border-bottom:1px solid #1E2A3A;margin-bottom:0.2rem;"></div>', unsafe_allow_html=True)
+
+    # ── Device rows ──
+    for display_idx, item in enumerate(breakdown_with_share):
+        # Find original index in session_state.devices for deletion
+        orig_idx = next(
+            (i for i, d in enumerate(st.session_state.devices) if d["device_name"] == item["device_name"]),
+            display_idx
+        )
+        share = item["share"]
         kind = item.get("device_type", "standard")
         if kind == "cooling":
             season_badge = ' <span style="font-size:0.62rem;color:#00D4FF;background:#0A1E2E;border:1px solid #00D4FF44;border-radius:4px;padding:1px 5px;margin-left:4px;">❄ Summer only</span>'
@@ -947,14 +1004,17 @@ with tab2:
         with col_name:
             st.markdown(f'<div style="padding:0.7rem 0.5rem;font-weight:600;color:#E8EDF5;border-bottom:1px solid #1E2A3A;">{item["device_name"]}{season_badge}</div>', unsafe_allow_html=True)
         with col_kwh:
-            st.markdown(f'<div style="padding:0.7rem 0.5rem;font-family:Space Mono,monospace;font-size:0.85rem;color:#A0B4CC;border-bottom:1px solid #1E2A3A;">{item["kwh_per_day"]}</div>', unsafe_allow_html=True)
+            kwh_color = "#00D4FF" if sort_by == "kwh" else "#A0B4CC"
+            st.markdown(f'<div style="padding:0.7rem 0.5rem;font-family:Space Mono,monospace;font-size:0.85rem;color:{kwh_color};border-bottom:1px solid #1E2A3A;">{item["kwh_per_day"]}</div>', unsafe_allow_html=True)
         with col_cost:
-            st.markdown(f'<div style="padding:0.7rem 0.5rem;font-family:Space Mono,monospace;font-size:0.85rem;color:#00FF94;border-bottom:1px solid #1E2A3A;">${item["cost_per_month"]}{cost_note}</div>', unsafe_allow_html=True)
+            cost_color = "#00D4FF" if sort_by == "cost" else "#00FF94"
+            st.markdown(f'<div style="padding:0.7rem 0.5rem;font-family:Space Mono,monospace;font-size:0.85rem;color:{cost_color};border-bottom:1px solid #1E2A3A;">${item["cost_per_month"]}{cost_note}</div>', unsafe_allow_html=True)
         with col_share:
-            st.markdown(f'<div style="padding:0.7rem 0.5rem;font-family:Space Mono,monospace;font-size:0.85rem;color:#A0B4CC;border-bottom:1px solid #1E2A3A;">{share}%</div>', unsafe_allow_html=True)
+            share_color = "#00D4FF" if sort_by == "share" else "#A0B4CC"
+            st.markdown(f'<div style="padding:0.7rem 0.5rem;font-family:Space Mono,monospace;font-size:0.85rem;color:{share_color};border-bottom:1px solid #1E2A3A;">{share}%</div>', unsafe_allow_html=True)
         with col_del:
-            if st.button("🗑", key=f"del_{idx}", help=f"Remove {item['device_name']}"):
-                st.session_state.devices.pop(idx)
+            if st.button("🗑", key=f"del_{display_idx}", help=f"Remove {item['device_name']}"):
+                st.session_state.devices.pop(orig_idx)
                 save_devices_to_snowflake(USER_ID, st.session_state.devices)
                 st.session_state.ai_result = None
                 st.rerun()
