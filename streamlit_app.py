@@ -745,7 +745,7 @@ with col1:
         opacity: 0;
         transition: opacity 0.18s ease, visibility 0.18s ease;
         position: absolute;
-        bottom: calc(100% + 10px);
+        top: calc(100% + 10px);
         left: 50%;
         transform: translateX(-50%);
         width: 280px;
