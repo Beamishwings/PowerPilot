@@ -497,6 +497,61 @@ def _classify(name):
     if any(k in n for k in HEATING_KEYWORDS): return "heating"
     return "standard"
 
+def load_devices_from_snowflake(user_id):
+    """Load saved devices for this user from Snowflake. Returns [] if table empty or missing."""
+    try:
+        df = run_query(
+            "SELECT device_name, power_on_watts, power_idle_watts, hours_on_per_day, hours_idle_per_day FROM POWERPILOT.MAIN.devices WHERE user_id = %s ORDER BY created_at",
+            params=[user_id]
+        )
+        devices = []
+        for _, row in df.iterrows():
+            def safe(val, default=0):
+                try:
+                    f = float(val)
+                    return f if f == f else default
+                except (TypeError, ValueError):
+                    return default
+            device = {
+                "device_name": str(row["DEVICE_NAME"]),
+                "power_on_watts": safe(row["POWER_ON_WATTS"]),
+                "hours_on_per_day": safe(row["HOURS_ON_PER_DAY"]),
+                "hours_idle_per_day": safe(row["HOURS_IDLE_PER_DAY"]),
+            }
+            idle = safe(row["POWER_IDLE_WATTS"], default=None)
+            if idle is not None:
+                device["power_idle_watts"] = idle
+            devices.append(device)
+        return devices
+    except Exception:
+        return []
+
+
+def save_devices_to_snowflake(user_id, devices):
+    """Overwrite all devices for this user in Snowflake."""
+    try:
+        conn = get_snowflake_connection()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM POWERPILOT.MAIN.devices WHERE user_id = %s", (user_id,))
+        for d in devices:
+            cursor.execute("""
+                INSERT INTO POWERPILOT.MAIN.devices
+                    (user_id, device_name, power_on_watts, power_idle_watts, hours_on_per_day, hours_idle_per_day, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+            """, (
+                user_id,
+                d["device_name"],
+                d.get("power_on_watts", 0),
+                d.get("power_idle_watts", d.get("power_on_watts", 0) * 0.05),
+                d.get("hours_on_per_day", 0),
+                d.get("hours_idle_per_day", 0),
+            ))
+        conn.commit()
+        cursor.close()
+    except Exception as e:
+        st.warning(f"Could not save devices: {e}")
+
+
 def compute_monthly_projection(devices, avg_rate):
     projection = {}
     for i, month in enumerate(MONTH_NAMES, start=1):
@@ -528,7 +583,7 @@ if "chat_history" not in st.session_state:
 if "ai_result" not in st.session_state:
     st.session_state.ai_result = None
 if "devices" not in st.session_state:
-    st.session_state.devices = get_devices(USER_ID)
+    st.session_state.devices = load_devices_from_snowflake(USER_ID)
 
 # ─────────────────────────────────────────
 # LOAD DATA (fixed single user, fixed rates)
@@ -827,6 +882,7 @@ with tab2:
         with col_del:
             if st.button("🗑", key=f"del_{idx}", help=f"Remove {item['device_name']}"):
                 st.session_state.devices.pop(idx)
+                save_devices_to_snowflake(USER_ID, st.session_state.devices)
                 st.session_state.ai_result = None
                 st.rerun()
 
@@ -872,6 +928,7 @@ with tab2:
                     "hours_on_per_day": float(hours_on),
                     "hours_idle_per_day": float(hours_idle),
                 })
+                save_devices_to_snowflake(USER_ID, st.session_state.devices)
                 st.session_state.ai_result = None
                 st.rerun()
             else:
