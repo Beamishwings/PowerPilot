@@ -430,7 +430,7 @@ Computed energy summary:
 {json.dumps(results, indent=2)}
 
 The user's current PowerScore is {power_score}/100.
-Estimate new_energy_score as what their score could reach if they follow your recommendations (must be higher than {power_score}).
+Estimate new_energy_score as what their score could reach if they follow your recommendations (must be higher than {power_score} and MUST NOT exceed 100).
 
 Return a JSON object with exactly this structure (no extra text, just JSON):
 {{
@@ -478,6 +478,51 @@ Answer in 2-4 sentences. Be specific to their actual devices and data. Be friend
 # ─────────────────────────────────────────
 # SESSION STATE
 # ─────────────────────────────────────────
+
+# ─────────────────────────────────────────
+# MONTHLY PROJECTION
+# ─────────────────────────────────────────
+MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+COOLING_MONTHS = {6,7,8,9}
+HEATING_MONTHS = {11,12,1,2,3}
+COOLING_KEYWORDS = ["ac","a/c","air conditioner","air conditioning","central air","window ac","mini split","mini-split","swamp cooler","evaporative cooler"]
+HEATING_KEYWORDS = ["heat","heater","heating","furnace","boiler","heat pump","space heater","baseboard heat","electric heat","radiant heat","floor heat"]
+COOLING_INTENSITY = {6:0.70,7:1.00,8:0.95,9:0.60}
+HEATING_INTENSITY = {11:0.60,12:1.00,1:1.00,2:0.85,3:0.55}
+STANDARD_SCALAR = {1:1.05,2:1.03,3:1.00,4:0.97,5:0.95,6:0.96,7:0.98,8:0.97,9:0.96,10:0.97,11:1.02,12:1.08}
+
+def _classify(name):
+    n = name.lower()
+    if any(k in n for k in COOLING_KEYWORDS): return "cooling"
+    if any(k in n for k in HEATING_KEYWORDS): return "heating"
+    return "standard"
+
+def compute_monthly_projection(devices, avg_rate):
+    projection = {}
+    for i, month in enumerate(MONTH_NAMES, start=1):
+        cost = 0.0
+        for d in devices:
+            name = d["device_name"]
+            kind = _classify(name)
+            on_w = d.get("power_on_watts", 0)
+            idle_w = d.get("power_idle_watts", on_w * 0.05)
+            h_on = d.get("hours_on_per_day", 0)
+            h_idle = d.get("hours_idle_per_day", 0)
+            if kind == "cooling":
+                if i not in COOLING_MONTHS: continue
+                intensity = COOLING_INTENSITY.get(i, 0.8)
+                kwh = (on_w * intensity * h_on + idle_w * h_idle) / 1000
+            elif kind == "heating":
+                if i not in HEATING_MONTHS: continue
+                intensity = HEATING_INTENSITY.get(i, 0.8)
+                kwh = (on_w * intensity * h_on + idle_w * h_idle) / 1000
+            else:
+                scalar = STANDARD_SCALAR.get(i, 1.0)
+                kwh = ((on_w * h_on + idle_w * h_idle) / 1000) * scalar
+            cost += kwh * 30 * avg_rate
+        projection[month] = round(cost, 2)
+    return projection
+
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 if "ai_result" not in st.session_state:
@@ -561,7 +606,7 @@ with col4:
 # ─────────────────────────────────────────
 # TABS
 # ─────────────────────────────────────────
-tab1, tab2, tab3, tab4 = st.tabs(["⚡ Rates & Hours", "📊 Devices", "🤖 AI Advisor", "💬 Chat"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["⚡ Rates & Hours", "📊 Devices", "🤖 AI Advisor", "💬 Chat", "📈 Projection"])
 
 # ── TAB 1: RATES & HOURS (interactive hover chart) ──
 with tab1:
@@ -844,7 +889,7 @@ with tab3:
     if st.session_state.ai_result:
         result = st.session_state.ai_result
         if "error" not in result:
-            new_score = result.get("new_energy_score", power_score)
+            new_score = min(100, result.get("new_energy_score", power_score))
             monthly_savings = result.get("estimated_monthly_savings", 0)
 
             col_x, col_y = st.columns(2)
@@ -890,3 +935,248 @@ with tab4:
             answer = ask_question(question, data)
         st.session_state.chat_history.append({"role": "assistant", "content": answer})
         st.rerun()
+
+# ── TAB 5: PROJECTION ──
+with tab5:
+    st.markdown('<div class="section-header">Annual Cost Projection <div class="section-line"></div></div>', unsafe_allow_html=True)
+
+    avg_rate_proj = sum(r["cost_per_kwh"] for r in rates) / len(rates) if rates else 0.12
+    monthly_proj = compute_monthly_projection(devices, avg_rate_proj)
+
+    months = MONTH_NAMES
+    costs = [monthly_proj[m] for m in months]
+    annual_total = round(sum(costs), 2)
+    avg_monthly = round(annual_total / 12, 2)
+    savings_pct = computed["optimization"]["potential_savings_percent"]
+    annual_savings = round(annual_total * savings_pct / 100, 2)
+
+    # ── Summary metric cards ──
+    mc1, mc2, mc3 = st.columns(3)
+    with mc1:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div style="font-size:0.7rem;color:#4A6080;text-transform:uppercase;letter-spacing:0.1em;font-family:'Space Mono',monospace;">Annual Total</div>
+            <div style="font-family:'Space Mono',monospace;font-size:2rem;color:#E8EDF5;margin-top:0.4rem;">${annual_total:,.2f}</div>
+            <div style="font-size:0.75rem;color:#4A6080;margin-top:0.3rem;">projected this year</div>
+        </div>
+        """, unsafe_allow_html=True)
+    with mc2:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div style="font-size:0.7rem;color:#4A6080;text-transform:uppercase;letter-spacing:0.1em;font-family:'Space Mono',monospace;">Avg Monthly Cost</div>
+            <div style="font-family:'Space Mono',monospace;font-size:2rem;color:#00D4FF;margin-top:0.4rem;">${avg_monthly:,.2f}</div>
+            <div style="font-size:0.75rem;color:#4A6080;margin-top:0.3rem;">per month average</div>
+        </div>
+        """, unsafe_allow_html=True)
+    with mc3:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div style="font-size:0.7rem;color:#4A6080;text-transform:uppercase;letter-spacing:0.1em;font-family:'Space Mono',monospace;">Potential Annual Savings</div>
+            <div style="font-family:'Space Mono',monospace;font-size:2rem;color:#00FF94;margin-top:0.4rem;">${annual_savings:,.2f}</div>
+            <div style="font-size:0.75rem;color:#4A6080;margin-top:0.3rem;">if shifted to off-peak hours</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("<div style='margin-top:1.5rem;'></div>", unsafe_allow_html=True)
+
+    # ── Interactive line chart via components.html ──
+    import streamlit.components.v1 as components
+    chart_data = [{"month": m, "cost": c} for m, c in zip(months, costs)]
+    chart_json = json.dumps(chart_data)
+    max_cost = max(costs) if costs else 1
+    min_cost = min(costs) if costs else 0
+
+    components.html(f"""
+    <style>
+        * {{ box-sizing:border-box; margin:0; padding:0; }}
+        body {{ background:transparent; font-family:monospace; }}
+    </style>
+    <div style="background:#0D1520;border:1px solid #1E2A3A;border-radius:16px;padding:1.4rem 1.6rem;position:relative;">
+
+        <div style="font-size:0.7rem;color:#4A6080;margin-bottom:1.2rem;letter-spacing:0.1em;">MONTHLY COST PROJECTION</div>
+
+        <!-- Tooltip -->
+        <div id="proj-tooltip" style="
+            display:none;
+            position:absolute;
+            background:#0A1628;
+            border:1px solid #2A3F5F;
+            border-radius:10px;
+            padding:0.5rem 0.85rem;
+            font-family:monospace;
+            font-size:0.72rem;
+            color:#E8EDF5;
+            pointer-events:none;
+            white-space:nowrap;
+            z-index:100;
+            box-shadow:0 4px 24px rgba(0,0,0,0.6);
+        "></div>
+
+        <div style="position:relative;">
+            <!-- Y-axis labels -->
+            <div id="proj-yaxis" style="position:absolute;left:0;top:0;bottom:24px;width:52px;display:flex;flex-direction:column;justify-content:space-between;align-items:flex-end;padding-right:8px;"></div>
+
+            <!-- Chart area -->
+            <div style="margin-left:56px;">
+                <svg id="proj-svg" width="100%" height="220" style="overflow:visible;"></svg>
+                <!-- X labels -->
+                <div id="proj-xlabels" style="display:grid;grid-template-columns:repeat(12,1fr);margin-top:6px;"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    (function() {{
+        const data = {chart_json};
+        const maxC = {max_cost};
+        const minC = {min_cost};
+        const PAD = 12;
+        const H = 200;
+
+        const svg = document.getElementById('proj-svg');
+        const tooltip = document.getElementById('proj-tooltip');
+        const yaxis = document.getElementById('proj-yaxis');
+        const xlabels = document.getElementById('proj-xlabels');
+
+        // Y-axis labels (5 steps)
+        const range = maxC - minC || 1;
+        for (let i = 4; i >= 0; i--) {{
+            const val = minC + (range * i / 4);
+            const div = document.createElement('div');
+            div.style.cssText = 'font-size:0.6rem;color:#4A6080;font-family:monospace;';
+            div.textContent = '$' + val.toFixed(0);
+            yaxis.appendChild(div);
+        }}
+
+        // X labels
+        data.forEach(function(d) {{
+            const div = document.createElement('div');
+            div.style.cssText = 'font-size:0.6rem;color:#4A6080;font-family:monospace;text-align:center;';
+            div.textContent = d.month;
+            xlabels.appendChild(div);
+        }});
+
+        function getY(cost) {{
+            return PAD + (H - PAD) * (1 - (cost - minC) / (range || 1));
+        }}
+
+        function waitForWidth() {{
+            const width = svg.getBoundingClientRect().width;
+            if (width < 10) {{ setTimeout(waitForWidth, 50); return; }}
+            render(width);
+        }}
+
+        function render(W) {{
+            const step = W / 12;
+            const points = data.map((d, i) => ({{
+                x: step * i + step / 2,
+                y: getY(d.cost),
+                cost: d.cost,
+                month: d.month,
+            }}));
+
+            // Gradient fill
+            const defs = document.createElementNS('http://www.w3.org/2000/svg','defs');
+            const grad = document.createElementNS('http://www.w3.org/2000/svg','linearGradient');
+            grad.setAttribute('id','linegrad');
+            grad.setAttribute('x1','0');grad.setAttribute('y1','0');
+            grad.setAttribute('x2','0');grad.setAttribute('y2','1');
+            [['0%','rgba(0,212,255,0.35)'],['100%','rgba(0,212,255,0)']].forEach(([off,col]) => {{
+                const stop = document.createElementNS('http://www.w3.org/2000/svg','stop');
+                stop.setAttribute('offset',off);
+                stop.setAttribute('stop-color',col);
+                grad.appendChild(stop);
+            }});
+            defs.appendChild(grad);
+            svg.appendChild(defs);
+
+            // Grid lines
+            for (let i = 0; i <= 4; i++) {{
+                const y = PAD + (H - PAD) * i / 4;
+                const line = document.createElementNS('http://www.w3.org/2000/svg','line');
+                line.setAttribute('x1','0');line.setAttribute('x2',W);
+                line.setAttribute('y1',y);line.setAttribute('y2',y);
+                line.setAttribute('stroke','#1E2A3A');line.setAttribute('stroke-width','1');
+                svg.appendChild(line);
+            }}
+
+            // Filled area under curve
+            const areaPath = points.map((p,i) => (i===0?'M':'L')+p.x.toFixed(1)+','+p.y.toFixed(1)).join(' ') +
+                ' L'+points[points.length-1].x.toFixed(1)+','+(H+PAD)+' L'+points[0].x.toFixed(1)+','+(H+PAD)+' Z';
+            const area = document.createElementNS('http://www.w3.org/2000/svg','path');
+            area.setAttribute('d', areaPath);
+            area.setAttribute('fill','url(#linegrad)');
+            svg.appendChild(area);
+
+            // Line
+            const linePath = points.map((p,i) => (i===0?'M':'L')+p.x.toFixed(1)+','+p.y.toFixed(1)).join(' ');
+            const line = document.createElementNS('http://www.w3.org/2000/svg','path');
+            line.setAttribute('d', linePath);
+            line.setAttribute('stroke','#00D4FF');
+            line.setAttribute('stroke-width','2.5');
+            line.setAttribute('fill','none');
+            line.setAttribute('stroke-linejoin','round');
+            line.setAttribute('stroke-linecap','round');
+            svg.appendChild(line);
+
+            // Dots + hover targets
+            points.forEach(function(p) {{
+                // Invisible wide hit area
+                const hit = document.createElementNS('http://www.w3.org/2000/svg','rect');
+                hit.setAttribute('x', p.x - step/2); hit.setAttribute('y', 0);
+                hit.setAttribute('width', step); hit.setAttribute('height', H + PAD);
+                hit.setAttribute('fill', 'transparent');
+                hit.style.cursor = 'crosshair';
+                svg.appendChild(hit);
+
+                // Visible dot
+                const dot = document.createElementNS('http://www.w3.org/2000/svg','circle');
+                dot.setAttribute('cx', p.x); dot.setAttribute('cy', p.y);
+                dot.setAttribute('r', '4');
+                dot.setAttribute('fill', '#00D4FF');
+                dot.setAttribute('stroke', '#080C12');
+                dot.setAttribute('stroke-width', '2');
+                dot.style.transition = 'r 0.1s';
+                svg.appendChild(dot);
+
+                // Vertical guide line (hidden by default)
+                const vline = document.createElementNS('http://www.w3.org/2000/svg','line');
+                vline.setAttribute('x1', p.x); vline.setAttribute('x2', p.x);
+                vline.setAttribute('y1', 0); vline.setAttribute('y2', H + PAD);
+                vline.setAttribute('stroke', '#2A3F5F');
+                vline.setAttribute('stroke-width', '1');
+                vline.setAttribute('stroke-dasharray', '4,3');
+                vline.style.display = 'none';
+                svg.insertBefore(vline, dot);
+
+                hit.addEventListener('mouseenter', function() {{
+                    dot.setAttribute('r', '6');
+                    dot.setAttribute('fill', '#00FF94');
+                    vline.style.display = '';
+                    tooltip.innerHTML =
+                        '<div style="color:#4A6080;font-size:0.62rem;margin-bottom:4px;letter-spacing:0.05em;">' + p.month.toUpperCase() + '</div>' +
+                        '<div style="font-size:0.95rem;color:#E8EDF5;">' +
+                            '$' + p.cost.toFixed(2) +
+                            '<span style="font-size:0.65rem;color:#4A6080;"> / month</span>' +
+                        '</div>';
+                    const svgRect = svg.getBoundingClientRect();
+                    const wrapRect = svg.parentElement.parentElement.getBoundingClientRect();
+                    const tx = svgRect.left - wrapRect.left + p.x;
+                    const ty = svgRect.top - wrapRect.top + p.y - 48;
+                    tooltip.style.left = Math.max(4, tx - 60) + 'px';
+                    tooltip.style.top = Math.max(4, ty) + 'px';
+                    tooltip.style.display = 'block';
+                }});
+                hit.addEventListener('mouseleave', function() {{
+                    dot.setAttribute('r', '4');
+                    dot.setAttribute('fill', '#00D4FF');
+                    vline.style.display = 'none';
+                    tooltip.style.display = 'none';
+                }});
+            }});
+        }}
+
+        waitForWidth();
+    }})();
+    </script>
+    """, height=320)
