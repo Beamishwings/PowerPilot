@@ -745,7 +745,7 @@ with col1:
         tier_range = "60 – 79"
         tier_color = "#00D4FF"
         tier_emoji = "✅"
-        tier_desc = "Your home runs efficiently for the most part. There's some room to reduce peak-hour usage or phantom load."
+        tier_desc = "Your home runs efficiently for the most part. There's some room to reduce peak-hour usage or energy waste."
         tier_tips = "Try shifting laundry or dishwasher runs to overnight hours to climb into Excellent."
     elif power_score >= 40:
         tier_name = "Fair"
@@ -759,7 +759,7 @@ with col1:
         tier_range = "0 – 39"
         tier_color = "#FF3366"
         tier_emoji = "🔴"
-        tier_desc = "High consumption, poor timing, or heavy phantom load is significantly impacting your score and bill."
+        tier_desc = "High consumption, poor timing, or high energy waste is significantly impacting your score and bill."
         tier_tips = "Start by removing or replacing the highest-wattage idle devices and avoid running appliances during peak hours."
 
     st.markdown(f"""
@@ -1161,28 +1161,44 @@ with tab1:
     import json as _json
     PIE_COLORS = ["#FF6B35","#FF3366","#FFD700","#00D4FF","#00FF94","#9B59B6","#3498DB","#E74C3C"]
 
-    if phantom_breakdown and total_phantom_w > 0:
-        slices_data = []
-        cumulative = 0.0
-        for i, item in enumerate(sorted(phantom_breakdown, key=lambda x: x["watts"], reverse=True)):
-            pct = item["watts"] / total_phantom_w
-            slices_data.append({
-                "name": item["name"],
-                "watts": item["watts"],
-                "pct": round(pct * 100),
-                "start": cumulative,
-                "end": cumulative + pct,
-                "color": PIE_COLORS[i % len(PIE_COLORS)],
-            })
-            cumulative += pct
-        slices_json = _json.dumps(slices_data)
+    import math as _math
 
-        # Top 3 phantom contributors
-        top3_phantom = sorted(phantom_breakdown, key=lambda x: x["watts"], reverse=True)[:3]
+    if phantom_breakdown and total_phantom_w > 0:
+        # Build pie slices purely in Python/SVG — st.markdown strips <script> tags
+        sorted_breakdown = sorted(phantom_breakdown, key=lambda x: x["watts"], reverse=True)
+        top3_phantom = sorted_breakdown[:3]
+
         top3_rows_html = "".join([
-            f'<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #1E2A3A;"><span style="font-size:0.75rem;color:#C0D0E0;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{x["name"]}</span><span style="font-family:Space Mono,monospace;font-size:0.72rem;color:#FF6B35;">{x["watts"]}W</span></div>'
-            for x in top3_phantom
+            f'<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid #1E2A3A;">'            f'<div style="display:flex;align-items:center;gap:6px;">'            f'<div style="width:8px;height:8px;border-radius:50%;background:{PIE_COLORS[i % len(PIE_COLORS)]};flex-shrink:0;"></div>'            f'<span style="font-size:0.75rem;color:#C0D0E0;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{x["name"]}</span>'            f'</div><span style="font-family:Space Mono,monospace;font-size:0.72rem;color:#FF6B35;white-space:nowrap;">{x["watts"]}W</span></div>'
+            for i, x in enumerate(top3_phantom)
         ])
+
+        # Generate SVG pie paths in Python
+        def polar(cx, cy, r, fraction):
+            angle = fraction * 2 * _math.pi - _math.pi / 2
+            return (cx + r * _math.cos(angle), cy + r * _math.sin(angle))
+
+        cx, cy, r_outer, r_inner = 50, 50, 44, 20
+        cumulative = 0.0
+        pie_paths = ""
+        legend_dots = ""
+        for i, item in enumerate(sorted_breakdown):
+            frac = item["watts"] / total_phantom_w
+            start_f = cumulative
+            end_f = cumulative + frac
+            x1, y1 = polar(cx, cy, r_outer, start_f)
+            x2, y2 = polar(cx, cy, r_outer, end_f)
+            large = 1 if frac > 0.5 else 0
+            color = PIE_COLORS[i % len(PIE_COLORS)]
+            # Outer arc slice
+            pie_paths += (
+                f'<path d="M{cx},{cy} L{x1:.2f},{y1:.2f} '                f'A{r_outer},{r_outer} 0 {large},1 {x2:.2f},{y2:.2f} Z" '                f'fill="{color}" stroke="#0A1628" stroke-width="1.2"/>'            )
+            cumulative += frac
+
+        # Center hole + label
+        pie_paths += f'<circle cx="{cx}" cy="{cy}" r="{r_inner}" fill="#0A1628"/>'                     f'<text x="{cx}" y="{cy-3}" text-anchor="middle" font-size="10" fill="#FF6B35" font-family="monospace" font-weight="bold">{phantom_pct}%</text>'                     f'<text x="{cx}" y="{cy+9}" text-anchor="middle" font-size="5.5" fill="#4A6080" font-family="monospace">wasted</text>'
+
+        pie_svg = f'<svg viewBox="0 0 100 100" width="120" height="120" style="display:block;margin:0 auto 0.8rem auto;">{pie_paths}</svg>'
 
         pie_tooltip_html = f"""
         <style>
@@ -1201,7 +1217,7 @@ with tab1:
             <div class="metric-card" style="cursor:help;">
                 <div style="display:flex;justify-content:space-between;align-items:center;">
                     <div>
-                        <div style="font-size:0.7rem;color:#4A6080;text-transform:uppercase;letter-spacing:0.1em;font-family:'Space Mono',monospace;">Phantom Load</div>
+                        <div style="font-size:0.7rem;color:#4A6080;text-transform:uppercase;letter-spacing:0.1em;font-family:'Space Mono',monospace;">Energy Waste</div>
                         <div style="font-family:'Space Mono',monospace;font-size:1.5rem;color:#FF6B35;margin-top:0.3rem;">{phantom_pct}% of total usage</div>
                         <div style="font-size:0.8rem;color:#4A6080;margin-top:0.3rem;">{phantom_watts}W idle draw · {phantom_kwh} kWh/day wasted</div>
                     </div>
@@ -1211,57 +1227,19 @@ with tab1:
                 </div>
             </div>
             <div class="phantom-tooltip">
-                <div style="font-family:Space Mono,monospace;font-size:0.6rem;letter-spacing:0.1em;text-transform:uppercase;color:#4A6080;margin-bottom:0.6rem;">👻 Phantom Load Breakdown</div>
-                <svg id="phantom-pie" viewBox="0 0 100 100" width="110" height="110" style="display:block;margin:0 auto 0.7rem auto;"></svg>
+                <div style="font-family:Space Mono,monospace;font-size:0.6rem;letter-spacing:0.1em;text-transform:uppercase;color:#4A6080;margin-bottom:0.6rem;">⚡ Energy Waste Breakdown</div>
+                {pie_svg}
                 <div style="font-family:Space Mono,monospace;font-size:0.6rem;letter-spacing:0.1em;text-transform:uppercase;color:#4A6080;margin-bottom:0.4rem;">Top Contributors</div>
                 {top3_rows_html}
             </div>
         </div>
-        <script>
-        (function() {{
-            var slices = {slices_json};
-            var svg = document.getElementById('phantom-pie');
-            if (!svg) return;
-            function polarToXY(cx,cy,r,pct) {{
-                var angle = pct * 2 * Math.PI - Math.PI/2;
-                return [cx + r * Math.cos(angle), cy + r * Math.sin(angle)];
-            }}
-            slices.forEach(function(s) {{
-                var p1 = polarToXY(50,50,45,s.start);
-                var p2 = polarToXY(50,50,45,s.end);
-                var large = (s.end - s.start) > 0.5 ? 1 : 0;
-                var path = document.createElementNS('http://www.w3.org/2000/svg','path');
-                path.setAttribute('d','M50,50 L'+p1[0].toFixed(2)+','+p1[1].toFixed(2)+' A45,45 0 '+large+',1 '+p2[0].toFixed(2)+','+p2[1].toFixed(2)+' Z');
-                path.setAttribute('fill', s.color);
-                path.setAttribute('stroke','#0A1628');
-                path.setAttribute('stroke-width','1');
-                svg.appendChild(path);
-            }});
-            // Center hole
-            var circle = document.createElementNS('http://www.w3.org/2000/svg','circle');
-            circle.setAttribute('cx','50'); circle.setAttribute('cy','50'); circle.setAttribute('r','22');
-            circle.setAttribute('fill','#0A1628');
-            svg.appendChild(circle);
-            // Center text
-            var txt = document.createElementNS('http://www.w3.org/2000/svg','text');
-            txt.setAttribute('x','50'); txt.setAttribute('y','48'); txt.setAttribute('text-anchor','middle');
-            txt.setAttribute('font-size','9'); txt.setAttribute('fill','#FF6B35'); txt.setAttribute('font-family','monospace');
-            txt.textContent = '{phantom_pct}%';
-            svg.appendChild(txt);
-            var txt2 = document.createElementNS('http://www.w3.org/2000/svg','text');
-            txt2.setAttribute('x','50'); txt2.setAttribute('y','58'); txt2.setAttribute('text-anchor','middle');
-            txt2.setAttribute('font-size','6'); txt2.setAttribute('fill','#4A6080'); txt2.setAttribute('font-family','monospace');
-            txt2.textContent = 'phantom';
-            svg.appendChild(txt2);
-        }})();
-        </script>
         """
     else:
         pie_tooltip_html = f"""
         <div class="metric-card">
             <div style="display:flex;justify-content:space-between;align-items:center;">
                 <div>
-                    <div style="font-size:0.7rem;color:#4A6080;text-transform:uppercase;letter-spacing:0.1em;font-family:'Space Mono',monospace;">Phantom Load</div>
+                    <div style="font-size:0.7rem;color:#4A6080;text-transform:uppercase;letter-spacing:0.1em;font-family:'Space Mono',monospace;">Energy Waste</div>
                     <div style="font-family:'Space Mono',monospace;font-size:1.5rem;color:#FF6B35;margin-top:0.3rem;">{phantom_pct}% of total usage</div>
                     <div style="font-size:0.8rem;color:#4A6080;margin-top:0.3rem;">{phantom_watts}W idle draw · {phantom_kwh} kWh/day wasted</div>
                 </div>
