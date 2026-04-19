@@ -241,8 +241,8 @@ USER_ID = "u1"
 # ─────────────────────────────────────────
 # SNOWFLAKE CONNECTION
 # ─────────────────────────────────────────
-@st.cache_resource
 def get_snowflake_connection():
+    """Always open a fresh connection - cached connections go stale on Snowflake."""
     return snowflake.connector.connect(
         account=st.secrets["SNOWFLAKE_ACCOUNT"],
         user=st.secrets["SNOWFLAKE_USER"],
@@ -254,15 +254,18 @@ def get_snowflake_connection():
 def run_query(query, params=None):
     import pandas as pd
     conn = get_snowflake_connection()
-    cursor = conn.cursor()
-    if params:
-        cursor.execute(query, params)
-    else:
-        cursor.execute(query)
-    columns = [col[0] for col in cursor.description]
-    rows = cursor.fetchall()
-    cursor.close()
-    return pd.DataFrame(rows, columns=columns)
+    try:
+        cursor = conn.cursor()
+        if params:
+            cursor.execute(query, params)
+        else:
+            cursor.execute(query)
+        columns = [col[0] for col in cursor.description]
+        rows = cursor.fetchall()
+        cursor.close()
+        return pd.DataFrame(rows, columns=columns)
+    finally:
+        conn.close()
 
 # ─────────────────────────────────────────
 # DATA FUNCTIONS
@@ -540,7 +543,7 @@ def load_devices_from_snowflake(user_id):
     """Load saved devices for this user from Snowflake. Returns [] if table empty or missing."""
     try:
         df = run_query(
-            "SELECT device_name, power_on_watts, power_idle_watts, hours_on_per_day, hours_idle_per_day FROM POWERPILOT.MAIN.devices WHERE user_id = %s ORDER BY created_at",
+            "SELECT device_name, power_on_watts, power_idle_watts, hours_on_per_day, hours_idle_per_day FROM POWERPILOT.MAIN.devices WHERE user_id = %s",
             params=[user_id]
         )
         devices = []
@@ -562,14 +565,15 @@ def load_devices_from_snowflake(user_id):
                 device["power_idle_watts"] = idle
             devices.append(device)
         return devices
-    except Exception:
+    except Exception as e:
+        st.error(f"Could not load devices from Snowflake: {e}")
         return []
 
 
 def save_devices_to_snowflake(user_id, devices):
     """Overwrite all devices for this user in Snowflake."""
+    conn = get_snowflake_connection()
     try:
-        conn = get_snowflake_connection()
         cursor = conn.cursor()
         cursor.execute("DELETE FROM POWERPILOT.MAIN.devices WHERE user_id = %s", (user_id,))
         for d in devices:
@@ -589,6 +593,8 @@ def save_devices_to_snowflake(user_id, devices):
         cursor.close()
     except Exception as e:
         st.error(f"Could not save devices: {e}")
+    finally:
+        conn.close()
 
 
 def compute_monthly_projection(devices, avg_rate):
