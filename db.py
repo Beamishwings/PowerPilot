@@ -49,46 +49,37 @@ def get_devices_for_user(user_id: str) -> list[dict]:
     return devices
 
 
-def get_rates_for_zip(zip_code: str) -> list[dict]:
+def get_fixed_rates() -> list[dict]:
     """
-    Pulls energy rates for a zip code from Snowflake.
-    Falls back to rates_fetcher.py if none found in DB.
+    Returns fixed demonstration energy rates (cost per kWh by hour).
+    Reflects a realistic TOU curve: cheap overnight, expensive evening peak.
     """
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        SELECT hour, cost_per_kwh
-        FROM energy_rates
-        WHERE zip_code = %s
-        ORDER BY hour
-    """, (zip_code,))
-
-    rows = cursor.fetchall()
-    cursor.close()
-    conn.close()
-
-    if not rows:
-        # fall back to live fetch if no rates in DB for this zip
-        from rates_fetcher import get_rates_by_zip
-        return get_rates_by_zip(zip_code)
-
-    return [{"hour": row[0], "cost_per_kwh": row[1]} for row in rows]
-
-
-def get_zip_for_user(user_id: str) -> str:
-    """
-    Looks up a user's zip code from the users table.
-    """
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("SELECT zip_code FROM users WHERE user_id = %s", (user_id,))
-    row = cursor.fetchone()
-    cursor.close()
-    conn.close()
-
-    return row[0] if row else "13037"  # default zip if not found
+    return [
+        {"hour": 0,  "cost_per_kwh": 0.08},
+        {"hour": 1,  "cost_per_kwh": 0.08},
+        {"hour": 2,  "cost_per_kwh": 0.08},
+        {"hour": 3,  "cost_per_kwh": 0.08},
+        {"hour": 4,  "cost_per_kwh": 0.08},
+        {"hour": 5,  "cost_per_kwh": 0.08},
+        {"hour": 6,  "cost_per_kwh": 0.11},
+        {"hour": 7,  "cost_per_kwh": 0.13},
+        {"hour": 8,  "cost_per_kwh": 0.13},
+        {"hour": 9,  "cost_per_kwh": 0.15},
+        {"hour": 10, "cost_per_kwh": 0.15},
+        {"hour": 11, "cost_per_kwh": 0.15},
+        {"hour": 12, "cost_per_kwh": 0.15},
+        {"hour": 13, "cost_per_kwh": 0.15},
+        {"hour": 14, "cost_per_kwh": 0.15},
+        {"hour": 15, "cost_per_kwh": 0.15},
+        {"hour": 16, "cost_per_kwh": 0.20},
+        {"hour": 17, "cost_per_kwh": 0.25},
+        {"hour": 18, "cost_per_kwh": 0.25},
+        {"hour": 19, "cost_per_kwh": 0.25},
+        {"hour": 20, "cost_per_kwh": 0.22},
+        {"hour": 21, "cost_per_kwh": 0.18},
+        {"hour": 22, "cost_per_kwh": 0.12},
+        {"hour": 23, "cost_per_kwh": 0.10},
+    ]
 
 
 def save_energy_profile(user_id: str, computed_results: dict):
