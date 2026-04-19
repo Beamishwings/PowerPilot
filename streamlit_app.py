@@ -269,7 +269,7 @@ def run_query(query, params=None):
 # ─────────────────────────────────────────
 def get_devices(user_id):
     df = run_query(
-        "SELECT device_name, power_on_watts, power_idle_watts, hours_on_per_day, hours_idle_per_day FROM POWERPILOT.MAIN.devices WHERE user_id = ?",
+        "SELECT device_name, power_on_watts, power_idle_watts, hours_on_per_day, hours_idle_per_day FROM POWERPILOT.MAIN.devices WHERE user_id = %s",
         params=[user_id]
     )
     devices = []
