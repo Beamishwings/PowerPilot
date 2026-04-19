@@ -703,12 +703,153 @@ phantom_pct = computed["phantom_load"]["percentage_of_total"]
 col1, col2, col3, col4 = st.columns([1.2, 1, 1, 1])
 
 with col1:
+    # Determine tier metadata
+    if power_score >= 80:
+        tier_name = "Excellent"
+        tier_range = "80 – 100"
+        tier_color = "#00FF94"
+        tier_emoji = "🏆"
+        tier_desc = "You're among the most efficient households. Your usage is well-timed, waste is minimal, and consumption is lean."
+        tier_tips = "Keep scheduling heavy appliances off-peak and audit idle devices annually."
+    elif power_score >= 60:
+        tier_name = "Good"
+        tier_range = "60 – 79"
+        tier_color = "#00D4FF"
+        tier_emoji = "✅"
+        tier_desc = "Your home runs efficiently for the most part. There's some room to reduce peak-hour usage or phantom load."
+        tier_tips = "Try shifting laundry or dishwasher runs to overnight hours to climb into Excellent."
+    elif power_score >= 40:
+        tier_name = "Fair"
+        tier_range = "40 – 59"
+        tier_color = "#FFD700"
+        tier_emoji = "⚠️"
+        tier_desc = "Your usage patterns have noticeable inefficiencies — likely peak-hour consumption or high idle/phantom draw."
+        tier_tips = "Check which devices run during 5–8 PM and look for always-on appliances draining power overnight."
+    else:
+        tier_name = "Needs Work"
+        tier_range = "0 – 39"
+        tier_color = "#FF3366"
+        tier_emoji = "🔴"
+        tier_desc = "High consumption, poor timing, or heavy phantom load is significantly impacting your score and bill."
+        tier_tips = "Start by removing or replacing the highest-wattage idle devices and avoid running appliances during peak hours."
+
     st.markdown(f"""
-    <div class="score-ring-wrap">
-        <div class="score-number">{power_score}</div>
-        <div class="score-label">PowerScore</div>
-        <div class="score-bar-bg">
-            <div class="score-bar-fill" style="width:{power_score}%"></div>
+    <style>
+    .score-wrap-outer {{
+        position: relative;
+        display: inline-block;
+        width: 100%;
+    }}
+    .score-tooltip {{
+        visibility: hidden;
+        opacity: 0;
+        transition: opacity 0.18s ease, visibility 0.18s ease;
+        position: absolute;
+        bottom: calc(100% + 10px);
+        left: 50%;
+        transform: translateX(-50%);
+        width: 280px;
+        background: #0A1628;
+        border: 1px solid #2A3F5F;
+        border-left: 3px solid {tier_color};
+        border-radius: 12px;
+        padding: 1rem 1.1rem;
+        z-index: 9999;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.7);
+        pointer-events: none;
+    }}
+    .score-wrap-outer:hover .score-tooltip {{
+        visibility: visible;
+        opacity: 1;
+    }}
+    .tooltip-tier-badge {{
+        font-family: 'Space Mono', monospace;
+        font-size: 0.65rem;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: {tier_color};
+        border: 1px solid {tier_color}55;
+        background: {tier_color}15;
+        border-radius: 4px;
+        padding: 2px 7px;
+        display: inline-block;
+        margin-bottom: 0.55rem;
+    }}
+    .tooltip-tier-name {{
+        font-family: 'Syne', sans-serif;
+        font-weight: 800;
+        font-size: 1.1rem;
+        color: {tier_color};
+        margin-bottom: 0.15rem;
+        line-height: 1.2;
+    }}
+    .tooltip-range {{
+        font-family: 'Space Mono', monospace;
+        font-size: 0.68rem;
+        color: #4A6080;
+        margin-bottom: 0.7rem;
+    }}
+    .tooltip-desc {{
+        font-size: 0.8rem;
+        color: #C0D0E0;
+        line-height: 1.55;
+        margin-bottom: 0.7rem;
+    }}
+    .tooltip-divider {{
+        height: 1px;
+        background: #1E2A3A;
+        margin-bottom: 0.65rem;
+    }}
+    .tooltip-tips-label {{
+        font-family: 'Space Mono', monospace;
+        font-size: 0.6rem;
+        letter-spacing: 0.1em;
+        color: #4A6080;
+        text-transform: uppercase;
+        margin-bottom: 0.35rem;
+    }}
+    .tooltip-tips {{
+        font-size: 0.78rem;
+        color: #A0B4CC;
+        line-height: 1.5;
+    }}
+    .tooltip-tiers {{
+        margin-top: 0.75rem;
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+    }}
+    .tooltip-tier-row {{
+        display: flex;
+        justify-content: space-between;
+        font-family: 'Space Mono', monospace;
+        font-size: 0.62rem;
+        padding: 2px 0;
+    }}
+    </style>
+
+    <div class="score-wrap-outer">
+        <div class="score-ring-wrap" style="cursor:help;">
+            <div class="score-number">{power_score}</div>
+            <div class="score-label">PowerScore</div>
+            <div class="score-bar-bg">
+                <div class="score-bar-fill" style="width:{power_score}%"></div>
+            </div>
+        </div>
+        <div class="score-tooltip">
+            <div class="tooltip-tier-badge">{tier_emoji} {tier_range}</div>
+            <div class="tooltip-tier-name">{tier_name}</div>
+            <div class="tooltip-range">Your score: {power_score} / 100</div>
+            <div class="tooltip-desc">{tier_desc}</div>
+            <div class="tooltip-divider"></div>
+            <div class="tooltip-tips-label">💡 Next step</div>
+            <div class="tooltip-tips">{tier_tips}</div>
+            <div class="tooltip-tiers">
+                <div class="tooltip-tier-row" style="color:#00FF94;"><span>🏆 Excellent</span><span>80–100</span></div>
+                <div class="tooltip-tier-row" style="color:#00D4FF;"><span>✅ Good</span><span>60–79</span></div>
+                <div class="tooltip-tier-row" style="color:#FFD700;"><span>⚠️ Fair</span><span>40–59</span></div>
+                <div class="tooltip-tier-row" style="color:#FF3366;"><span>🔴 Needs Work</span><span>0–39</span></div>
+            </div>
         </div>
     </div>
     """, unsafe_allow_html=True)
