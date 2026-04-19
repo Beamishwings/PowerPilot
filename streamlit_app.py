@@ -355,8 +355,12 @@ def compute_energy_results(data):
             seasonal_cost = round(kwh_per_day * 30 * avg_rate * active_months / 12, 2)
         else:
             seasonal_cost = round(kwh_per_day * 30 * avg_rate, 2)
-        # Phantom load for this device: idle draw = 5% of on_watts * idle hours
-        device_phantom_watts = on_watts * 0.05 * hours_idle
+        # Phantom load: only applies to devices that genuinely sit in standby.
+        # Cycling appliances (HVAC, fridge, washer, dryer, etc.) have no phantom — idle is normal operation.
+        if _has_phantom(device["device_name"]):
+            device_phantom_watts = on_watts * 0.05 * hours_idle
+        else:
+            device_phantom_watts = 0.0
         device_phantom_cost = round(device_phantom_watts / 1000 * 30 * avg_rate, 2)
         total_kwh += kwh_per_day
         breakdown.append({
@@ -380,6 +384,7 @@ def compute_energy_results(data):
     phantom_watts = sum(
         device.get("power_on_watts", 0) * 0.05 * device.get("hours_idle_per_day", 0)
         for device in devices
+        if _has_phantom(device["device_name"])
     )
     phantom_kwh = round(phantom_watts / 1000, 3)
     phantom_pct = round(phantom_kwh / total_kwh * 100) if total_kwh and total_kwh == total_kwh else 0
@@ -563,11 +568,32 @@ COOLING_INTENSITY = {6:0.70,7:1.00,8:0.95,9:0.60}
 HEATING_INTENSITY = {11:0.60,12:1.00,1:1.00,2:0.85,3:0.55}
 STANDARD_SCALAR = {1:1.05,2:1.03,3:1.00,4:0.97,5:0.95,6:0.96,7:0.98,8:0.97,9:0.96,10:0.97,11:1.02,12:1.08}
 
+# Appliances that cycle on/off by design — idle draw is normal operation, not phantom waste.
+# HVAC already covered by COOLING/HEATING_KEYWORDS.
+NO_PHANTOM_KEYWORDS = [
+    "fridge", "refrigerator", "freezer",
+    "washer", "washing machine",
+    "dryer", "clothes dryer",
+    "dishwasher",
+    "oven", "stove", "range", "microwave",
+    "water heater", "pool pump", "sump pump", "well pump",
+    "dehumidifier", "humidifier",
+    "electric vehicle", "ev charger", "car charger",
+]
+
 def _classify(name):
     n = name.lower()
     if any(k in n for k in COOLING_KEYWORDS): return "cooling"
     if any(k in n for k in HEATING_KEYWORDS): return "heating"
     return "standard"
+
+def _has_phantom(name):
+    """Return False for appliances whose idle draw is normal cycling, not standby waste."""
+    n = name.lower()
+    if any(k in n for k in COOLING_KEYWORDS): return False
+    if any(k in n for k in HEATING_KEYWORDS): return False
+    if any(k in n for k in NO_PHANTOM_KEYWORDS): return False
+    return True
 
 def load_devices_from_snowflake(user_id):
     """Load saved devices for this user from Snowflake. Returns [] if table empty or missing."""
