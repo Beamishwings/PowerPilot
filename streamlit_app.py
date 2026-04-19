@@ -884,26 +884,89 @@ with col1:
     """, unsafe_allow_html=True)
 
 with col2:
+    # Top 3 devices by kWh/day
+    top_kwh = sorted(computed["breakdown"], key=lambda x: x["kwh_per_day"], reverse=True)[:3]
+    top_kwh_rows = "".join([
+        f'<div class="mtt-row"><span class="mtt-name">{item["device_name"]}</span><span class="mtt-val">{item["kwh_per_day"]} kWh</span></div>'
+        for item in top_kwh
+    ]) if top_kwh else '<div class="mtt-empty">No devices added</div>'
     st.markdown(f"""
-    <div class="metric-card">
-        <div class="metric-value metric-accent">{total_kwh}<span class="metric-unit"> kWh</span></div>
-        <div class="metric-label">Daily Usage</div>
+    <style>
+    .metric-wrap {{ position:relative; display:inline-block; width:100%; }}
+    .metric-tooltip {{
+        visibility:hidden; opacity:0;
+        transition:opacity 0.18s ease, visibility 0.18s ease;
+        position:absolute; top:calc(100% + 10px); left:50%; transform:translateX(-50%);
+        width:240px; background:#0A1628; border:1px solid #2A3F5F;
+        border-left:3px solid #00D4FF; border-radius:12px; padding:0.9rem 1rem;
+        z-index:9999; box-shadow:0 8px 32px rgba(0,0,0,0.7); pointer-events:none;
+    }}
+    .metric-wrap:hover .metric-tooltip {{ visibility:visible; opacity:1; }}
+    .mtt-label {{ font-family:"Space Mono",monospace; font-size:0.6rem; letter-spacing:0.1em;
+        text-transform:uppercase; color:#4A6080; margin-bottom:0.5rem; }}
+    .mtt-row {{ display:flex; justify-content:space-between; align-items:center;
+        padding:0.3rem 0; border-bottom:1px solid #1E2A3A; }}
+    .mtt-row:last-child {{ border-bottom:none; }}
+    .mtt-name {{ font-size:0.78rem; color:#C0D0E0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:140px; }}
+    .mtt-val {{ font-family:"Space Mono",monospace; font-size:0.75rem; color:#00D4FF; white-space:nowrap; }}
+    .mtt-val-green {{ font-family:"Space Mono",monospace; font-size:0.75rem; color:#00FF94; white-space:nowrap; }}
+    .mtt-val-orange {{ font-family:"Space Mono",monospace; font-size:0.75rem; color:#FF6B35; white-space:nowrap; }}
+    .mtt-empty {{ font-size:0.75rem; color:#4A6080; }}
+    </style>
+    <div class="metric-wrap">
+        <div class="metric-card" style="cursor:help;">
+            <div class="metric-value metric-accent">{total_kwh}<span class="metric-unit"> kWh</span></div>
+            <div class="metric-label">Daily Usage</div>
+        </div>
+        <div class="metric-tooltip">
+            <div class="mtt-label">⚡ Top 3 by Daily Usage</div>
+            {top_kwh_rows}
+        </div>
     </div>
     """, unsafe_allow_html=True)
 
 with col3:
+    # Top 3 devices by monthly cost
+    top_cost = sorted(computed["breakdown"], key=lambda x: x["cost_per_month"], reverse=True)[:3]
+    top_cost_rows = "".join([
+        f'<div class="mtt-row"><span class="mtt-name">{item["device_name"]}</span><span class="mtt-val-green">${item["cost_per_month"]}/mo</span></div>'
+        for item in top_cost
+    ]) if top_cost else '<div class="mtt-empty">No devices added</div>'
     st.markdown(f"""
-    <div class="metric-card">
-        <div class="metric-value">${total_cost}<span class="metric-unit">/mo</span></div>
-        <div class="metric-label">Est. Monthly Cost</div>
+    <div class="metric-wrap">
+        <div class="metric-card" style="cursor:help;">
+            <div class="metric-value">${total_cost}<span class="metric-unit">/mo</span></div>
+            <div class="metric-label">Est. Monthly Cost</div>
+        </div>
+        <div class="metric-tooltip" style="border-left-color:#00FF94;">
+            <div class="mtt-label">💰 Top 3 by Monthly Cost</div>
+            {top_cost_rows}
+        </div>
     </div>
     """, unsafe_allow_html=True)
 
 with col4:
+    # Top 3 devices by potential savings (cost * savings_pct)
+    savings_pct_val = computed["optimization"]["potential_savings_percent"]
+    breakdown_savings = [
+        {**item, "potential_save": round(item["cost_per_month"] * savings_pct_val / 100, 2)}
+        for item in computed["breakdown"]
+    ]
+    top_savings = sorted(breakdown_savings, key=lambda x: x["potential_save"], reverse=True)[:3]
+    top_savings_rows = "".join([
+        f'<div class="mtt-row"><span class="mtt-name">{item["device_name"]}</span><span class="mtt-val-orange">-${item["potential_save"]}/mo</span></div>'
+        for item in top_savings
+    ]) if top_savings else '<div class="mtt-empty">No devices added</div>'
     st.markdown(f"""
-    <div class="metric-card">
-        <div class="metric-value metric-accent-green">${potential_savings}<span class="metric-unit">/mo</span></div>
-        <div class="metric-label">Potential Savings</div>
+    <div class="metric-wrap">
+        <div class="metric-card" style="cursor:help;">
+            <div class="metric-value metric-accent-green">${potential_savings}<span class="metric-unit">/mo</span></div>
+            <div class="metric-label">Potential Savings</div>
+        </div>
+        <div class="metric-tooltip" style="border-left-color:#FF6B35;">
+            <div class="mtt-label">📉 Top 3 Savings Opportunities</div>
+            {top_savings_rows}
+        </div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -1087,20 +1150,129 @@ with tab1:
     phantom_watts = computed["phantom_load"]["total_watts"]
     phantom_kwh = computed["phantom_load"]["daily_kwh"]
 
-    st.markdown(f"""
-    <div class="metric-card">
-        <div style="display:flex;justify-content:space-between;align-items:center;">
-            <div>
-                <div style="font-size:0.7rem;color:#4A6080;text-transform:uppercase;letter-spacing:0.1em;font-family:'Space Mono',monospace;">Phantom Load</div>
-                <div style="font-family:'Space Mono',monospace;font-size:1.5rem;color:#FF6B35;margin-top:0.3rem;">{phantom_pct}% of total usage</div>
-                <div style="font-size:0.8rem;color:#4A6080;margin-top:0.3rem;">{phantom_watts}W idle draw · {phantom_kwh} kWh/day wasted</div>
+    # Build phantom breakdown per device for pie chart
+    phantom_breakdown = []
+    for item in computed["breakdown"]:
+        pw = item.get("phantom_watts", 0)
+        if pw > 0:
+            phantom_breakdown.append({"name": item["device_name"], "watts": pw})
+    total_phantom_w = sum(x["watts"] for x in phantom_breakdown)
+
+    import json as _json
+    PIE_COLORS = ["#FF6B35","#FF3366","#FFD700","#00D4FF","#00FF94","#9B59B6","#3498DB","#E74C3C"]
+
+    if phantom_breakdown and total_phantom_w > 0:
+        slices_data = []
+        cumulative = 0.0
+        for i, item in enumerate(sorted(phantom_breakdown, key=lambda x: x["watts"], reverse=True)):
+            pct = item["watts"] / total_phantom_w
+            slices_data.append({
+                "name": item["name"],
+                "watts": item["watts"],
+                "pct": round(pct * 100),
+                "start": cumulative,
+                "end": cumulative + pct,
+                "color": PIE_COLORS[i % len(PIE_COLORS)],
+            })
+            cumulative += pct
+        slices_json = _json.dumps(slices_data)
+
+        # Top 3 phantom contributors
+        top3_phantom = sorted(phantom_breakdown, key=lambda x: x["watts"], reverse=True)[:3]
+        top3_rows_html = "".join([
+            f'<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #1E2A3A;"><span style="font-size:0.75rem;color:#C0D0E0;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{x["name"]}</span><span style="font-family:Space Mono,monospace;font-size:0.72rem;color:#FF6B35;">{x["watts"]}W</span></div>'
+            for x in top3_phantom
+        ])
+
+        pie_tooltip_html = f"""
+        <style>
+        .phantom-wrap {{ position:relative; display:block; width:100%; }}
+        .phantom-tooltip {{
+            visibility:hidden; opacity:0;
+            transition:opacity 0.18s ease, visibility 0.18s ease;
+            position:absolute; top:calc(100% + 10px); left:0;
+            width:260px; background:#0A1628; border:1px solid #2A3F5F;
+            border-left:3px solid #FF6B35; border-radius:12px; padding:0.9rem 1rem;
+            z-index:9999; box-shadow:0 8px 32px rgba(0,0,0,0.7); pointer-events:none;
+        }}
+        .phantom-wrap:hover .phantom-tooltip {{ visibility:visible; opacity:1; }}
+        </style>
+        <div class="phantom-wrap">
+            <div class="metric-card" style="cursor:help;">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                    <div>
+                        <div style="font-size:0.7rem;color:#4A6080;text-transform:uppercase;letter-spacing:0.1em;font-family:'Space Mono',monospace;">Phantom Load</div>
+                        <div style="font-family:'Space Mono',monospace;font-size:1.5rem;color:#FF6B35;margin-top:0.3rem;">{phantom_pct}% of total usage</div>
+                        <div style="font-size:0.8rem;color:#4A6080;margin-top:0.3rem;">{phantom_watts}W idle draw · {phantom_kwh} kWh/day wasted</div>
+                    </div>
+                </div>
+                <div class="phantom-bar-bg">
+                    <div class="phantom-bar-fill" style="width:{min(phantom_pct,100)}%"></div>
+                </div>
+            </div>
+            <div class="phantom-tooltip">
+                <div style="font-family:Space Mono,monospace;font-size:0.6rem;letter-spacing:0.1em;text-transform:uppercase;color:#4A6080;margin-bottom:0.6rem;">👻 Phantom Load Breakdown</div>
+                <svg id="phantom-pie" viewBox="0 0 100 100" width="110" height="110" style="display:block;margin:0 auto 0.7rem auto;"></svg>
+                <div style="font-family:Space Mono,monospace;font-size:0.6rem;letter-spacing:0.1em;text-transform:uppercase;color:#4A6080;margin-bottom:0.4rem;">Top Contributors</div>
+                {top3_rows_html}
             </div>
         </div>
-        <div class="phantom-bar-bg">
-            <div class="phantom-bar-fill" style="width:{min(phantom_pct,100)}%"></div>
+        <script>
+        (function() {{
+            var slices = {slices_json};
+            var svg = document.getElementById('phantom-pie');
+            if (!svg) return;
+            function polarToXY(cx,cy,r,pct) {{
+                var angle = pct * 2 * Math.PI - Math.PI/2;
+                return [cx + r * Math.cos(angle), cy + r * Math.sin(angle)];
+            }}
+            slices.forEach(function(s) {{
+                var p1 = polarToXY(50,50,45,s.start);
+                var p2 = polarToXY(50,50,45,s.end);
+                var large = (s.end - s.start) > 0.5 ? 1 : 0;
+                var path = document.createElementNS('http://www.w3.org/2000/svg','path');
+                path.setAttribute('d','M50,50 L'+p1[0].toFixed(2)+','+p1[1].toFixed(2)+' A45,45 0 '+large+',1 '+p2[0].toFixed(2)+','+p2[1].toFixed(2)+' Z');
+                path.setAttribute('fill', s.color);
+                path.setAttribute('stroke','#0A1628');
+                path.setAttribute('stroke-width','1');
+                svg.appendChild(path);
+            }});
+            // Center hole
+            var circle = document.createElementNS('http://www.w3.org/2000/svg','circle');
+            circle.setAttribute('cx','50'); circle.setAttribute('cy','50'); circle.setAttribute('r','22');
+            circle.setAttribute('fill','#0A1628');
+            svg.appendChild(circle);
+            // Center text
+            var txt = document.createElementNS('http://www.w3.org/2000/svg','text');
+            txt.setAttribute('x','50'); txt.setAttribute('y','48'); txt.setAttribute('text-anchor','middle');
+            txt.setAttribute('font-size','9'); txt.setAttribute('fill','#FF6B35'); txt.setAttribute('font-family','monospace');
+            txt.textContent = '{phantom_pct}%';
+            svg.appendChild(txt);
+            var txt2 = document.createElementNS('http://www.w3.org/2000/svg','text');
+            txt2.setAttribute('x','50'); txt2.setAttribute('y','58'); txt2.setAttribute('text-anchor','middle');
+            txt2.setAttribute('font-size','6'); txt2.setAttribute('fill','#4A6080'); txt2.setAttribute('font-family','monospace');
+            txt2.textContent = 'phantom';
+            svg.appendChild(txt2);
+        }})();
+        </script>
+        """
+    else:
+        pie_tooltip_html = f"""
+        <div class="metric-card">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+                <div>
+                    <div style="font-size:0.7rem;color:#4A6080;text-transform:uppercase;letter-spacing:0.1em;font-family:'Space Mono',monospace;">Phantom Load</div>
+                    <div style="font-family:'Space Mono',monospace;font-size:1.5rem;color:#FF6B35;margin-top:0.3rem;">{phantom_pct}% of total usage</div>
+                    <div style="font-size:0.8rem;color:#4A6080;margin-top:0.3rem;">{phantom_watts}W idle draw · {phantom_kwh} kWh/day wasted</div>
+                </div>
+            </div>
+            <div class="phantom-bar-bg">
+                <div class="phantom-bar-fill" style="width:{min(phantom_pct,100)}%"></div>
+            </div>
         </div>
-    </div>
-    """, unsafe_allow_html=True)
+        """
+
+    st.markdown(pie_tooltip_html, unsafe_allow_html=True)
 
 # ── TAB 2: DEVICE BREAKDOWN ──
 with tab2:
