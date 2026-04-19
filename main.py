@@ -7,7 +7,7 @@ from db import get_devices_for_user, get_zip_for_user, get_rates_for_zip, save_e
 from optimizer import compute_energy_results
 from ai_engine import generate_energy_recommendation, ask_energy_question
 
-USER_ID = "u1"
+USER_ID = "User 1"
 
 if __name__ == "__main__":
     print(f"Fetching data for user {USER_ID} from Snowflake...")
