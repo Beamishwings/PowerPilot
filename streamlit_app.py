@@ -600,44 +600,59 @@ with tab1:
 
     bars_json = json.dumps(bars_data)
 
-    st.markdown(f"""
-    <div style="background:#0D1520;border:1px solid #1E2A3A;border-radius:16px;padding:1.5rem;position:relative;">
 
-        <!-- Legend -->
+    hour_labels = "".join(
+        f'<div style="font-size:0.5rem;font-family:Space Mono,monospace;color:#4A6080;text-align:center;">{h:02d}</div>'
+        for h in range(24)
+    )
+
+    import streamlit.components.v1 as components
+    components.html(f"""
+    <style>
+        * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+        body {{ background: transparent; font-family: 'Space Mono', monospace; }}
+    </style>
+    <div style="background:#0D1520;border:1px solid #1E2A3A;border-radius:16px;padding:1.2rem;position:relative;">
+
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
-            <span style="font-size:0.75rem;color:#4A6080;font-family:'Space Mono',monospace;">HOUR OF DAY (0–23)</span>
-            <span style="font-size:0.75rem;color:#4A6080;font-family:'Space Mono',monospace;">
-                <span style="color:#00FF94;">■</span> Off-peak &nbsp;
-                <span style="color:#1E3A5F;background:#1E3A5F;padding:0 6px;">■</span>&nbsp; Standard &nbsp;
-                <span style="color:#FF3366;">■</span> Peak
+            <span style="font-size:0.7rem;color:#4A6080;font-family:monospace;">HOUR OF DAY (0-23)</span>
+            <span style="font-size:0.7rem;color:#4A6080;font-family:monospace;">
+                <span style="color:#00FF94;">&#9632;</span> Off-peak &nbsp;
+                <span style="color:#4A7FA5;">&#9632;</span> Standard &nbsp;
+                <span style="color:#FF3366;">&#9632;</span> Peak
             </span>
         </div>
 
-        <!-- Tooltip -->
         <div id="pp-tooltip" style="
             display:none;
             position:absolute;
-            top:3.5rem;
+            top:3.2rem;
             background:#0A1628;
             border:1px solid #2A3F5F;
             border-radius:10px;
-            padding:0.6rem 1rem;
-            font-family:'Space Mono',monospace;
-            font-size:0.75rem;
+            padding:0.55rem 0.9rem;
+            font-family:monospace;
+            font-size:0.72rem;
             color:#E8EDF5;
             pointer-events:none;
             white-space:nowrap;
             z-index:100;
-            box-shadow:0 4px 24px rgba(0,0,0,0.5);
-            min-width:180px;
+            box-shadow:0 4px 24px rgba(0,0,0,0.6);
+            min-width:190px;
         "></div>
 
-        <!-- Bar chart -->
-        <div id="pp-chart" style="display:grid;grid-template-columns:repeat(24,1fr);gap:3px;height:90px;align-items:end;position:relative;cursor:crosshair;"></div>
+        <div id="pp-chart" style="
+            display:grid;
+            grid-template-columns:repeat(24,1fr);
+            gap:3px;
+            height:100px;
+            align-items:end;
+            position:relative;
+            cursor:crosshair;
+        "></div>
 
-        <!-- Hour labels -->
         <div style="display:grid;grid-template-columns:repeat(24,1fr);gap:3px;margin-top:5px;">
-            {"".join(f'<div style="font-size:0.45rem;font-family:Space Mono,monospace;color:#4A6080;text-align:center;">{h:02d}</div>' for h in range(24))}
+            {hour_labels}
         </div>
     </div>
 
@@ -646,42 +661,40 @@ with tab1:
         const bars = {bars_json};
         const chart = document.getElementById('pp-chart');
         const tooltip = document.getElementById('pp-tooltip');
-        if (!chart) return;
 
         bars.forEach(function(b) {{
             const bar = document.createElement('div');
-            bar.style.cssText = [
-                'height:' + b.height + '%',
-                'background:' + b.color,
-                'border-radius:4px 4px 2px 2px',
-                'transition:filter 0.15s,transform 0.15s',
-                'cursor:crosshair',
-            ].join(';');
+            bar.style.height = b.height + '%';
+            bar.style.background = b.color;
+            bar.style.borderRadius = '4px 4px 2px 2px';
+            bar.style.transition = 'filter 0.12s, transform 0.12s';
+            bar.style.cursor = 'crosshair';
+            bar.style.transformOrigin = 'bottom';
 
-            bar.addEventListener('mouseenter', function(e) {{
-                bar.style.filter = 'brightness(1.4)';
-                bar.style.transform = 'scaleY(1.06)';
-                bar.style.transformOrigin = 'bottom';
+            bar.addEventListener('mouseenter', function() {{
+                bar.style.filter = 'brightness(1.5)';
+                bar.style.transform = 'scaleY(1.07)';
 
                 const ampm = b.hour < 12 ? 'AM' : 'PM';
                 const h12 = b.hour === 0 ? 12 : b.hour > 12 ? b.hour - 12 : b.hour;
                 const timeStr = h12 + ':00 ' + ampm;
 
-                const dotColor = b.color;
                 tooltip.innerHTML =
-                    '<div style="color:#4A6080;font-size:0.65rem;margin-bottom:4px;">HOUR ' + String(b.hour).padStart(2,'0') + ' &nbsp;·&nbsp; ' + timeStr + '</div>' +
-                    '<div style="font-size:1rem;color:#E8EDF5;margin-bottom:4px;">$' + b.rate.toFixed(4) + ' <span style="font-size:0.7rem;color:#4A6080;">/ kWh</span></div>' +
-                    '<div style="color:' + dotColor + ';font-size:0.72rem;">● ' + b.label + '</div>';
+                    '<div style="color:#4A6080;font-size:0.62rem;margin-bottom:5px;letter-spacing:0.05em;">' +
+                        'HOUR ' + String(b.hour).padStart(2,'0') + ' &nbsp;&middot;&nbsp; ' + timeStr +
+                    '</div>' +
+                    '<div style="font-size:0.95rem;color:#E8EDF5;margin-bottom:5px;">' +
+                        '$' + b.rate.toFixed(4) +
+                        '<span style="font-size:0.65rem;color:#4A6080;"> / kWh</span>' +
+                    '</div>' +
+                    '<div style="color:' + b.color + ';font-size:0.7rem;">&#9679; ' + b.label + '</div>';
 
-                // Position tooltip: keep it inside the card
                 const chartRect = chart.getBoundingClientRect();
                 const barRect = bar.getBoundingClientRect();
                 const barCenterX = barRect.left - chartRect.left + barRect.width / 2;
-                const tooltipWidth = 200;
+                const tooltipWidth = 210;
                 const maxLeft = chartRect.width - tooltipWidth - 8;
-                const leftPos = Math.max(4, Math.min(barCenterX - tooltipWidth / 2, maxLeft));
-
-                tooltip.style.left = leftPos + 'px';
+                tooltip.style.left = Math.max(4, Math.min(barCenterX - tooltipWidth / 2, maxLeft)) + 'px';
                 tooltip.style.display = 'block';
             }});
 
@@ -695,7 +708,8 @@ with tab1:
         }});
     }})();
     </script>
-    """, unsafe_allow_html=True)
+    """, height=185)
+
 
     col_a, col_b = st.columns(2)
     with col_a:
