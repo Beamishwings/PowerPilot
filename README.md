@@ -1,5 +1,11 @@
 # PowerPilot
 
+Tracks we are going for:
+    * Best use of Snowflake API
+    * Best Beginner Hack
+    * Best UI/UX
+    * Main Track
+
 PowerPilot — Smart Home Energy Advisor
 PowerPilot is an AI-powered home energy dashboard that helps users understand, optimize, 
 and reduce their electricity consumption through device tracking, time-of-use rate analysis, and LLM-generated recommendations.
