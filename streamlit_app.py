@@ -575,8 +575,8 @@ def save_devices_to_snowflake(user_id, devices):
         for d in devices:
             cursor.execute("""
                 INSERT INTO POWERPILOT.MAIN.devices
-                    (user_id, device_name, power_on_watts, power_idle_watts, hours_on_per_day, hours_idle_per_day, created_at)
-                VALUES (%s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+                    (user_id, device_name, power_on_watts, power_idle_watts, hours_on_per_day, hours_idle_per_day)
+                VALUES (%s, %s, %s, %s, %s, %s)
             """, (
                 user_id,
                 d["device_name"],
@@ -588,7 +588,7 @@ def save_devices_to_snowflake(user_id, devices):
         conn.commit()
         cursor.close()
     except Exception as e:
-        st.warning(f"Could not save devices: {e}")
+        st.error(f"Could not save devices: {e}")
 
 
 def compute_monthly_projection(devices, avg_rate):
@@ -928,17 +928,17 @@ with tab2:
     # ── Add Device expander ──
     st.markdown("<div style='margin-top:1.5rem;'></div>", unsafe_allow_html=True)
 
-    # Initialize AI-defaults session state keys so widgets can be pre-seeded
-    if "add_watts" not in st.session_state:
-        st.session_state["add_watts"] = 100
-    if "add_hours_on" not in st.session_state:
-        st.session_state["add_hours_on"] = 4
-    if "add_hours_idle" not in st.session_state:
-        st.session_state["add_hours_idle"] = 2
-    if "add_device_notes" not in st.session_state:
-        st.session_state["add_device_notes"] = ""
-    if "add_ai_loaded" not in st.session_state:
-        st.session_state["add_ai_loaded"] = False
+    # ── Staging keys for AI-prefilled values (never collide with widget keys) ──
+    if "_add_watts_val" not in st.session_state:
+        st.session_state["_add_watts_val"] = 100
+    if "_add_hours_on_val" not in st.session_state:
+        st.session_state["_add_hours_on_val"] = 4
+    if "_add_hours_idle_val" not in st.session_state:
+        st.session_state["_add_hours_idle_val"] = 2
+    if "_add_device_notes" not in st.session_state:
+        st.session_state["_add_device_notes"] = ""
+    if "_add_ai_loaded" not in st.session_state:
+        st.session_state["_add_ai_loaded"] = False
 
     with st.expander("＋ Add a Device", expanded=False):
         st.markdown('<div style="font-size:0.7rem;color:#4A6080;text-transform:uppercase;letter-spacing:0.1em;font-family:Space Mono,monospace;margin-bottom:1rem;">New Device Parameters</div>', unsafe_allow_html=True)
@@ -962,31 +962,40 @@ with tab2:
             else:
                 with st.spinner(f"Looking up DOE averages for **{name_val}**…"):
                     defaults = fetch_device_defaults(name_val)
-                st.session_state["add_watts"] = defaults["power_on_watts"]
-                st.session_state["add_hours_on"] = int(round(defaults["hours_on_per_day"]))
-                # Clamp idle so on+idle ≤ 24
-                max_idle = 24 - st.session_state["add_hours_on"]
-                st.session_state["add_hours_idle"] = min(int(round(defaults["hours_idle_per_day"])), max_idle)
-                st.session_state["add_device_notes"] = defaults.get("notes", "")
-                st.session_state["add_ai_loaded"] = True
+                h_on = int(round(defaults["hours_on_per_day"]))
+                h_idle = min(int(round(defaults["hours_idle_per_day"])), 24 - h_on)
+                # Write to staging keys — safe because these are not widget keys
+                st.session_state["_add_watts_val"] = defaults["power_on_watts"]
+                st.session_state["_add_hours_on_val"] = h_on
+                st.session_state["_add_hours_idle_val"] = h_idle
+                st.session_state["_add_device_notes"] = defaults.get("notes", "")
+                st.session_state["_add_ai_loaded"] = True
                 st.rerun()
 
         # Show AI note banner if defaults were just loaded
-        if st.session_state.get("add_ai_loaded") and st.session_state.get("add_device_notes"):
+        if st.session_state.get("_add_ai_loaded") and st.session_state.get("_add_device_notes"):
             st.markdown(f"""
             <div style="background:#0A1E10;border:1px solid #00FF9433;border-left:3px solid #00FF94;
                         border-radius:8px;padding:0.6rem 1rem;margin-bottom:0.8rem;
                         font-size:0.8rem;color:#80FFCC;font-family:Space Mono,monospace;">
-                ⚡ AI estimate: {st.session_state['add_device_notes']}
+                ⚡ AI estimate: {st.session_state['_add_device_notes']}
             </div>
             """, unsafe_allow_html=True)
 
-        # ── Wattage input (seeded from session state) ──
+        # ── Wattage + sliders ──
+        # When AI Lookup fires, we write the staging keys AND forcibly update the
+        # widget keys so the new value is reflected immediately after rerun.
+        if st.session_state.get("_add_ai_loaded"):
+            st.session_state["add_watts"] = st.session_state["_add_watts_val"]
+            st.session_state["add_hours_on"] = st.session_state["_add_hours_on_val"]
+            st.session_state["add_hours_idle"] = st.session_state["_add_hours_idle_val"]
+            st.session_state["_add_ai_loaded"] = False  # consume the flag
+
         new_watts = st.number_input(
             "Wattage (W)",
             min_value=1,
             max_value=10000,
-            value=st.session_state["add_watts"],
+            value=st.session_state.get("add_watts", 100),
             step=10,
             key="add_watts",
         )
@@ -998,7 +1007,7 @@ with tab2:
             "Hours ON per day",
             min_value=0,
             max_value=24,
-            value=st.session_state["add_hours_on"],
+            value=st.session_state.get("add_hours_on", 4),
             step=1,
             key="add_hours_on",
         )
@@ -1007,7 +1016,7 @@ with tab2:
             "Hours IDLE per day",
             min_value=0,
             max_value=remaining,
-            value=min(st.session_state["add_hours_idle"], remaining),
+            value=min(st.session_state.get("add_hours_idle", 2), remaining),
             step=1,
             key="add_hours_idle",
         )
@@ -1038,12 +1047,11 @@ with tab2:
                 })
                 save_devices_to_snowflake(USER_ID, st.session_state.devices)
                 st.session_state.ai_result = None
-                # Reset add-device state for next use
-                st.session_state["add_watts"] = 100
-                st.session_state["add_hours_on"] = 4
-                st.session_state["add_hours_idle"] = 2
-                st.session_state["add_device_notes"] = ""
-                st.session_state["add_ai_loaded"] = False
+                # Reset all add-device state for next use
+                for k in ["add_watts", "add_hours_on", "add_hours_idle",
+                          "_add_watts_val", "_add_hours_on_val", "_add_hours_idle_val",
+                          "_add_device_notes", "_add_ai_loaded"]:
+                    st.session_state.pop(k, None)
                 st.rerun()
             else:
                 st.warning("Please enter a device name.")
