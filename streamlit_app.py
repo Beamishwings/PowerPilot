@@ -1039,22 +1039,24 @@ with tab2:
 
         hours_on = st.slider(
             "Hours ON per day",
-            min_value=0,
-            max_value=24,
-            value=st.session_state.get("add_hours_on", 4),
-            step=1,
+            min_value=0.0,
+            max_value=24.0,
+            value=float(st.session_state.get("add_hours_on", 4)),
+            step=0.25,
             key="add_hours_on",
+            format="%.2f h",
         )
-        remaining = 24 - hours_on
+        remaining = round(24.0 - hours_on, 2)
         hours_idle = st.slider(
             "Hours IDLE per day",
-            min_value=0,
+            min_value=0.0,
             max_value=remaining,
-            value=min(st.session_state.get("add_hours_idle", 2), remaining),
-            step=1,
+            value=min(float(st.session_state.get("add_hours_idle", 2)), remaining),
+            step=0.25,
             key="add_hours_idle",
+            format="%.2f h",
         )
-        hours_off = 24 - hours_on - hours_idle
+        hours_off = round(24.0 - hours_on - hours_idle, 2)
 
         # Live preview bar
         st.markdown(f"""
@@ -1064,9 +1066,9 @@ with tab2:
             <div style="flex:{max(hours_off,0.01)};background:#1E2A3A;border-radius:4px;" title="OFF"></div>
         </div>
         <div style="display:flex;gap:1.5rem;font-size:0.7rem;font-family:Space Mono,monospace;color:#4A6080;margin-bottom:1rem;">
-            <span><span style="color:#00D4FF;">■</span> ON: {hours_on}h</span>
-            <span><span style="color:#FF6B35;">■</span> IDLE: {hours_idle}h</span>
-            <span><span style="color:#4A6080;">■</span> OFF: {hours_off}h</span>
+            <span><span style="color:#00D4FF;">■</span> ON: {hours_on:.2f}h</span>
+            <span><span style="color:#FF6B35;">■</span> IDLE: {hours_idle:.2f}h</span>
+            <span><span style="color:#4A6080;">■</span> OFF: {hours_off:.2f}h</span>
         </div>
         """, unsafe_allow_html=True)
 
@@ -1192,47 +1194,41 @@ with tab5:
 
     st.markdown("<div style='margin-top:1.5rem;'></div>", unsafe_allow_html=True)
 
-    # ── Interactive line chart via components.html ──
+    # ── Interactive line chart with savings toggle ──
     import streamlit.components.v1 as components
-    chart_data = [{"month": m, "cost": c} for m, c in zip(months, costs)]
+    savings_costs = [round(c * (1 - savings_pct / 100), 2) for c in costs]
+    chart_data = [{"month": m, "cost": c, "savings_cost": s} for m, c, s in zip(months, costs, savings_costs)]
     chart_json = json.dumps(chart_data)
-    max_cost = max(costs) if costs else 1
-    min_cost = min(costs) if costs else 0
+    all_vals = costs + savings_costs
+    max_cost = max(all_vals) if all_vals else 1
+    min_cost = min(v for v in all_vals if v > 0) if any(v > 0 for v in all_vals) else 0
 
     components.html(f"""
     <style>
         * {{ box-sizing:border-box; margin:0; padding:0; }}
         body {{ background:transparent; font-family:monospace; }}
+        .tog-btn {{
+            font-family:monospace; font-size:0.7rem; padding:4px 12px;
+            border-radius:6px; border:1px solid; cursor:pointer;
+            transition:all 0.15s; letter-spacing:0.05em;
+        }}
     </style>
     <div style="background:#0D1520;border:1px solid #1E2A3A;border-radius:16px;padding:1.4rem 1.6rem;position:relative;">
 
-        <div style="font-size:0.7rem;color:#4A6080;margin-bottom:1.2rem;letter-spacing:0.1em;">MONTHLY COST PROJECTION</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.2rem;">
+            <div style="font-size:0.7rem;color:#4A6080;letter-spacing:0.1em;">MONTHLY COST PROJECTION</div>
+            <div style="display:flex;gap:8px;">
+                <button id="tog-actual" class="tog-btn" style="color:#00D4FF;border-color:#00D4FF;background:#00D4FF22;">&#11044; Actual</button>
+                <button id="tog-savings" class="tog-btn" style="color:#00FF94;border-color:#00FF94;background:#00FF9422;">&#11044; With Savings</button>
+            </div>
+        </div>
 
-        <!-- Tooltip -->
-        <div id="proj-tooltip" style="
-            display:none;
-            position:absolute;
-            background:#0A1628;
-            border:1px solid #2A3F5F;
-            border-radius:10px;
-            padding:0.5rem 0.85rem;
-            font-family:monospace;
-            font-size:0.72rem;
-            color:#E8EDF5;
-            pointer-events:none;
-            white-space:nowrap;
-            z-index:100;
-            box-shadow:0 4px 24px rgba(0,0,0,0.6);
-        "></div>
+        <div id="proj-tooltip" style="display:none;position:absolute;background:#0A1628;border:1px solid #2A3F5F;border-radius:10px;padding:0.5rem 0.85rem;font-family:monospace;font-size:0.72rem;color:#E8EDF5;pointer-events:none;white-space:nowrap;z-index:100;box-shadow:0 4px 24px rgba(0,0,0,0.6);min-width:160px;"></div>
 
         <div style="position:relative;">
-            <!-- Y-axis labels -->
             <div id="proj-yaxis" style="position:absolute;left:0;top:0;bottom:24px;width:52px;display:flex;flex-direction:column;justify-content:space-between;align-items:flex-end;padding-right:8px;"></div>
-
-            <!-- Chart area -->
             <div style="margin-left:56px;">
                 <svg id="proj-svg" width="100%" height="220" style="overflow:visible;"></svg>
-                <!-- X labels -->
                 <div id="proj-xlabels" style="display:grid;grid-template-columns:repeat(12,1fr);margin-top:6px;"></div>
             </div>
         </div>
@@ -1243,15 +1239,16 @@ with tab5:
         const data = {chart_json};
         const maxC = {max_cost};
         const minC = {min_cost};
-        const PAD = 12;
-        const H = 200;
+        const PAD = 12, H = 200;
+        let showActual = true, showSavings = true;
 
-        const svg = document.getElementById('proj-svg');
-        const tooltip = document.getElementById('proj-tooltip');
-        const yaxis = document.getElementById('proj-yaxis');
+        const svg    = document.getElementById('proj-svg');
+        const tip    = document.getElementById('proj-tooltip');
+        const yaxis  = document.getElementById('proj-yaxis');
         const xlabels = document.getElementById('proj-xlabels');
+        const togA   = document.getElementById('tog-actual');
+        const togS   = document.getElementById('tog-savings');
 
-        // Y-axis labels (5 steps)
         const range = maxC - minC || 1;
         for (let i = 4; i >= 0; i--) {{
             const val = minC + (range * i / 4);
@@ -1260,8 +1257,6 @@ with tab5:
             div.textContent = '$' + val.toFixed(0);
             yaxis.appendChild(div);
         }}
-
-        // X labels
         data.forEach(function(d) {{
             const div = document.createElement('div');
             div.style.cssText = 'font-size:0.6rem;color:#4A6080;font-family:monospace;text-align:center;';
@@ -1269,127 +1264,131 @@ with tab5:
             xlabels.appendChild(div);
         }});
 
-        function getY(cost) {{
-            return PAD + (H - PAD) * (1 - (cost - minC) / (range || 1));
-        }}
+        function getY(v) {{ return PAD + (H - PAD) * (1 - (v - minC) / range); }}
+        function mkPath(pts) {{ return pts.map((p,i)=>(i===0?'M':'L')+p.x.toFixed(1)+','+p.y.toFixed(1)).join(' '); }}
+        function ns(tag) {{ return document.createElementNS('http://www.w3.org/2000/svg', tag); }}
 
-        function waitForWidth() {{
-            const width = svg.getBoundingClientRect().width;
-            if (width < 10) {{ setTimeout(waitForWidth, 50); return; }}
-            render(width);
-        }}
+        let elActualArea, elActualLine, elSavingsArea, elSavingsLine;
+        let aDots=[], sDots=[];
 
         function render(W) {{
+            svg.innerHTML=''; aDots=[]; sDots=[];
             const step = W / 12;
-            const points = data.map((d, i) => ({{
-                x: step * i + step / 2,
-                y: getY(d.cost),
-                cost: d.cost,
-                month: d.month,
-            }}));
 
-            // Gradient fill
-            const defs = document.createElementNS('http://www.w3.org/2000/svg','defs');
-            const grad = document.createElementNS('http://www.w3.org/2000/svg','linearGradient');
-            grad.setAttribute('id','linegrad');
-            grad.setAttribute('x1','0');grad.setAttribute('y1','0');
-            grad.setAttribute('x2','0');grad.setAttribute('y2','1');
-            [['0%','rgba(0,212,255,0.35)'],['100%','rgba(0,212,255,0)']].forEach(([off,col]) => {{
-                const stop = document.createElementNS('http://www.w3.org/2000/svg','stop');
-                stop.setAttribute('offset',off);
-                stop.setAttribute('stop-color',col);
-                grad.appendChild(stop);
+            const apts = data.map((d,i)=>({{ x:step*i+step/2, y:getY(d.cost),         cost:d.cost, sc:d.savings_cost, month:d.month }}));
+            const spts = data.map((d,i)=>({{ x:step*i+step/2, y:getY(d.savings_cost),  cost:d.cost, sc:d.savings_cost, month:d.month }}));
+
+            // Defs
+            const defs = ns('defs');
+            [['linegrad','rgba(0,212,255,0.3)','rgba(0,212,255,0)'],
+             ['savingsgrad','rgba(0,255,148,0.2)','rgba(0,255,148,0)']].forEach(([id,c0,c1])=>{{
+                const g=ns('linearGradient');
+                g.setAttribute('id',id); g.setAttribute('x1','0'); g.setAttribute('y1','0');
+                g.setAttribute('x2','0'); g.setAttribute('y2','1');
+                [[0,c0],[1,c1]].forEach(([pct,col])=>{{
+                    const s=ns('stop'); s.setAttribute('offset',pct); s.setAttribute('stop-color',col); g.appendChild(s);
+                }});
+                defs.appendChild(g);
             }});
-            defs.appendChild(grad);
             svg.appendChild(defs);
 
-            // Grid lines
-            for (let i = 0; i <= 4; i++) {{
-                const y = PAD + (H - PAD) * i / 4;
-                const line = document.createElementNS('http://www.w3.org/2000/svg','line');
-                line.setAttribute('x1','0');line.setAttribute('x2',W);
-                line.setAttribute('y1',y);line.setAttribute('y2',y);
-                line.setAttribute('stroke','#1E2A3A');line.setAttribute('stroke-width','1');
-                svg.appendChild(line);
+            // Grid
+            for(let i=0;i<=4;i++){{
+                const y=PAD+(H-PAD)*i/4, gl=ns('line');
+                gl.setAttribute('x1','0');gl.setAttribute('x2',W);gl.setAttribute('y1',y);gl.setAttribute('y2',y);
+                gl.setAttribute('stroke','#1E2A3A');gl.setAttribute('stroke-width','1');
+                svg.appendChild(gl);
             }}
 
-            // Filled area under curve
-            const areaPath = points.map((p,i) => (i===0?'M':'L')+p.x.toFixed(1)+','+p.y.toFixed(1)).join(' ') +
-                ' L'+points[points.length-1].x.toFixed(1)+','+(H+PAD)+' L'+points[0].x.toFixed(1)+','+(H+PAD)+' Z';
-            const area = document.createElementNS('http://www.w3.org/2000/svg','path');
-            area.setAttribute('d', areaPath);
-            area.setAttribute('fill','url(#linegrad)');
-            svg.appendChild(area);
+            function mkArea(pts,gid){{
+                const el=ns('path');
+                el.setAttribute('d', mkPath(pts)+' L'+pts[pts.length-1].x.toFixed(1)+','+(H+PAD)+' L'+pts[0].x.toFixed(1)+','+(H+PAD)+' Z');
+                el.setAttribute('fill','url(#'+gid+')'); return el;
+            }}
+            function mkLine(pts,color,w,dash){{
+                const el=ns('path'); el.setAttribute('d',mkPath(pts));
+                el.setAttribute('stroke',color); el.setAttribute('stroke-width',w);
+                el.setAttribute('fill','none'); el.setAttribute('stroke-linejoin','round'); el.setAttribute('stroke-linecap','round');
+                if(dash) el.setAttribute('stroke-dasharray',dash); return el;
+            }}
 
-            // Line
-            const linePath = points.map((p,i) => (i===0?'M':'L')+p.x.toFixed(1)+','+p.y.toFixed(1)).join(' ');
-            const line = document.createElementNS('http://www.w3.org/2000/svg','path');
-            line.setAttribute('d', linePath);
-            line.setAttribute('stroke','#00D4FF');
-            line.setAttribute('stroke-width','2.5');
-            line.setAttribute('fill','none');
-            line.setAttribute('stroke-linejoin','round');
-            line.setAttribute('stroke-linecap','round');
-            svg.appendChild(line);
+            elSavingsArea = mkArea(spts,'savingsgrad'); svg.appendChild(elSavingsArea);
+            elSavingsLine = mkLine(spts,'#00FF94','2','6,3'); svg.appendChild(elSavingsLine);
+            elActualArea  = mkArea(apts,'linegrad');   svg.appendChild(elActualArea);
+            elActualLine  = mkLine(apts,'#00D4FF','2.5',null); svg.appendChild(elActualLine);
 
-            // Dots + hover targets
-            points.forEach(function(p) {{
-                // Invisible wide hit area
-                const hit = document.createElementNS('http://www.w3.org/2000/svg','rect');
-                hit.setAttribute('x', p.x - step/2); hit.setAttribute('y', 0);
-                hit.setAttribute('width', step); hit.setAttribute('height', H + PAD);
-                hit.setAttribute('fill', 'transparent');
-                hit.style.cursor = 'crosshair';
+            // Savings dots
+            spts.forEach(function(p){{
+                const d=ns('circle');
+                d.setAttribute('cx',p.x); d.setAttribute('cy',p.y); d.setAttribute('r','3');
+                d.setAttribute('fill','#00FF94'); d.setAttribute('stroke','#080C12'); d.setAttribute('stroke-width','2');
+                svg.appendChild(d); sDots.push(d);
+            }});
+
+            // Actual dots + hit zones
+            apts.forEach(function(p,idx){{
+                const vl=ns('line');
+                vl.setAttribute('x1',p.x);vl.setAttribute('x2',p.x);vl.setAttribute('y1',0);vl.setAttribute('y2',H+PAD);
+                vl.setAttribute('stroke','#2A3F5F');vl.setAttribute('stroke-width','1');vl.setAttribute('stroke-dasharray','4,3');
+                vl.style.display='none'; svg.appendChild(vl);
+
+                const d=ns('circle');
+                d.setAttribute('cx',p.x);d.setAttribute('cy',p.y);d.setAttribute('r','4');
+                d.setAttribute('fill','#00D4FF');d.setAttribute('stroke','#080C12');d.setAttribute('stroke-width','2');
+                svg.appendChild(d); aDots.push(d);
+
+                const hit=ns('rect');
+                hit.setAttribute('x',p.x-step/2);hit.setAttribute('y',0);
+                hit.setAttribute('width',step);hit.setAttribute('height',H+PAD);
+                hit.setAttribute('fill','transparent');hit.style.cursor='crosshair';
                 svg.appendChild(hit);
 
-                // Visible dot
-                const dot = document.createElementNS('http://www.w3.org/2000/svg','circle');
-                dot.setAttribute('cx', p.x); dot.setAttribute('cy', p.y);
-                dot.setAttribute('r', '4');
-                dot.setAttribute('fill', '#00D4FF');
-                dot.setAttribute('stroke', '#080C12');
-                dot.setAttribute('stroke-width', '2');
-                dot.style.transition = 'r 0.1s';
-                svg.appendChild(dot);
-
-                // Vertical guide line (hidden by default)
-                const vline = document.createElementNS('http://www.w3.org/2000/svg','line');
-                vline.setAttribute('x1', p.x); vline.setAttribute('x2', p.x);
-                vline.setAttribute('y1', 0); vline.setAttribute('y2', H + PAD);
-                vline.setAttribute('stroke', '#2A3F5F');
-                vline.setAttribute('stroke-width', '1');
-                vline.setAttribute('stroke-dasharray', '4,3');
-                vline.style.display = 'none';
-                svg.insertBefore(vline, dot);
-
-                hit.addEventListener('mouseenter', function() {{
-                    dot.setAttribute('r', '6');
-                    dot.setAttribute('fill', '#00FF94');
-                    vline.style.display = '';
-                    tooltip.innerHTML =
-                        '<div style="color:#4A6080;font-size:0.62rem;margin-bottom:4px;letter-spacing:0.05em;">' + p.month.toUpperCase() + '</div>' +
-                        '<div style="font-size:0.95rem;color:#E8EDF5;">' +
-                            '$' + p.cost.toFixed(2) +
-                            '<span style="font-size:0.65rem;color:#4A6080;"> / month</span>' +
-                        '</div>';
-                    const svgRect = svg.getBoundingClientRect();
-                    const wrapRect = svg.parentElement.parentElement.getBoundingClientRect();
-                    const tx = svgRect.left - wrapRect.left + p.x;
-                    const ty = svgRect.top - wrapRect.top + p.y - 48;
-                    tooltip.style.left = Math.max(4, tx - 60) + 'px';
-                    tooltip.style.top = Math.max(4, ty) + 'px';
-                    tooltip.style.display = 'block';
+                hit.addEventListener('mouseenter',function(){{
+                    if(showActual){{ d.setAttribute('r','6'); d.setAttribute('fill','#FFD700'); }}
+                    if(showSavings) sDots[idx].setAttribute('r','5');
+                    vl.style.display='';
+                    let html='<div style="color:#4A6080;font-size:0.62rem;margin-bottom:6px;letter-spacing:0.05em;">'+p.month.toUpperCase()+'</div>';
+                    if(showActual)  html+='<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;"><span style="color:#00D4FF;font-size:0.65rem;">&#11044; Actual</span><span style="font-size:0.9rem;color:#E8EDF5;">$'+p.cost.toFixed(2)+'</span><span style="font-size:0.6rem;color:#4A6080;">/mo</span></div>';
+                    if(showSavings) html+='<div style="display:flex;align-items:center;gap:6px;"><span style="color:#00FF94;font-size:0.65rem;">&#11044; Savings</span><span style="font-size:0.9rem;color:#00FF94;">$'+p.sc.toFixed(2)+'</span><span style="font-size:0.6rem;color:#4A6080;">/mo</span></div>';
+                    tip.innerHTML=html;
+                    const sr=svg.getBoundingClientRect(), wr=svg.parentElement.parentElement.getBoundingClientRect();
+                    const tx=sr.left-wr.left+p.x, ty=sr.top-wr.top+p.y-64;
+                    tip.style.left=Math.max(4,Math.min(tx-80, wr.width-180))+'px';
+                    tip.style.top=Math.max(4,ty)+'px'; tip.style.display='block';
                 }});
-                hit.addEventListener('mouseleave', function() {{
-                    dot.setAttribute('r', '4');
-                    dot.setAttribute('fill', '#00D4FF');
-                    vline.style.display = 'none';
-                    tooltip.style.display = 'none';
+                hit.addEventListener('mouseleave',function(){{
+                    d.setAttribute('r','4'); d.setAttribute('fill','#00D4FF');
+                    sDots[idx].setAttribute('r','3');
+                    vl.style.display='none'; tip.style.display='none';
                 }});
             }});
+
+            applyVis();
         }}
 
+        function applyVis(){{
+            if(!elActualLine) return;
+            [elActualLine,elActualArea].forEach(el=>el.style.display=showActual?'':'none');
+            aDots.forEach(d=>d.style.display=showActual?'':'none');
+            [elSavingsLine,elSavingsArea].forEach(el=>el.style.display=showSavings?'':'none');
+            sDots.forEach(d=>d.style.display=showSavings?'':'none');
+        }}
+        function styleBtn(btn,on,color){{
+            btn.style.background=on?color+'22':'transparent';
+            btn.style.color=on?color:'#4A6080';
+            btn.style.borderColor=on?color:'#2A3A4A';
+            btn.style.opacity=on?'1':'0.5';
+        }}
+
+        togA.addEventListener('click',function(){{ showActual=!showActual; styleBtn(togA,showActual,'#00D4FF'); applyVis(); }});
+        togS.addEventListener('click',function(){{ showSavings=!showSavings; styleBtn(togS,showSavings,'#00FF94'); applyVis(); }});
+
+        function waitForWidth(){{
+            const w=svg.getBoundingClientRect().width;
+            if(w<10){{ setTimeout(waitForWidth,50); return; }}
+            render(w);
+        }}
         waitForWidth();
     }})();
     </script>
-    """, height=320)
+    """, height=340)
